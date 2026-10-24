@@ -1,0 +1,77 @@
+# EXAMPLE net-intent manifest — the patterns here are illustrative.
+#
+# Save it beside the board as `<board>.netintent.yaml` and the audit finds it
+# on its own. Claude writes it from what the user said; the user never edits a
+# YAML.
+#
+# This is the only place a human judgement enters the audit, and it exists
+# because some nets matter for reasons no geometry can see.
+#
+# The auditor classifies every net into `protocol`, `power` or `other`, from
+# the manufacturer's pin names first and the designer's net names second. That
+# inference is good at buses and rails and blind to anything else — so a net
+# it could NOT identify keeps the full severity its check computed. Custom
+# symbols under-name their pins constantly, and absence of evidence is not
+# evidence that a net does not matter.
+#
+# Which makes this file the ONLY thing that lowers a severity anywhere in the
+# tool. Nothing is ever re-measured, nothing is ever promoted in severity, and
+# the severity the check computed is kept in the finding, so a demotion is
+# visible and reversible.
+#
+# It is also how a net joins the power-scoped checks. A firing channel is the
+# standard example: it is a power OUTPUT that no power symbol drives, so
+# nothing structural calls it a rail and nothing measures its current
+# capacity — on a board where it is the most safety-relevant net there is.
+
+nets:
+
+  # Patterns are `fnmatch` against BOARD net names (not schematic ones — the
+  # two do not round-trip through KiCad), and FIRST MATCH WINS. Put the
+  # specific case above the general one, as here.
+  - match: "/FIRE_CH1"
+    net_class: other
+    note: "unpopulated on this build — the channel exists but nothing drives it"
+
+  - match: "/FIRE_CH*"
+    net_class: power
+    kind: firing_channel
+    # A `note` is REQUIRED on anything raised TO full severity, for the same
+    # reason a thermal entry needs its datasheet: an unattributed override
+    # cannot be told apart from a mistake.
+    note: "5 A for 100 ms into a low-ohm load; a break here is a dud, a short
+      is worse"
+
+  # Intent runs both ways. Demoting is as legitimate as promoting, and it is
+  # how you stop a report drowning in findings about nets you do not care
+  # about.
+  - match: "/TP*"
+    net_class: other
+    note: "test points, probed once at bring-up"
+
+  - match: "/MOTOR?_[AB]"
+    net_class: power
+    kind: motor_output
+    note: "H-bridge output, 5 A continuous per channel"
+
+# `net_class` must be one of:
+#
+#   protocol   a signal bus — UART, I2C, SPI, CAN, USB, RF, PWM. Keeps the
+#              full severity the check computed, and is exempt from demotion.
+#   power      a rail or a power output. Same, and additionally joins the set
+#              that current-capacity and heat-path are measured on.
+#   other      you do not care about this net. Its findings are lowered to
+#              `minor` — the only demotion that exists.
+#
+# `kind` is free text, carried through to the finding for the reader.
+#
+# A pattern that matches NOTHING is reported — in the census and in the run's
+# assumptions. A silent typo would leave the user believing a net is protected
+# when it is not, which is the failure mode this whole file exists to avoid.
+#
+# One rule needs no manifest and is worth knowing before writing one: a net
+# with more than half its routed length above 0.2 mm wide is treated as
+# `power` already, which is what admits it to the current-capacity check.
+# Check the audit's reported median routed width first — on a board whose
+# default routing is wider than that, the rule reclassifies a lot, and the
+# audit says so in its assumptions.

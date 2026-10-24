@@ -1,0 +1,27 @@
+# One entry in the shipped fab stackup library. See README.md for the rules —
+# in short: a transcription of something a fab published, never an estimate.
+code: JLC0216
+fab: JLCPCB
+title: 2 layer, 1.5 mm core
+summary: the ordinary 2-layer JLCPCB board — one core, copper both sides
+
+copper_layers: 2
+
+# The fab's table for this one carries a bare code and NO finished-thickness
+# header, unlike the other two. Left null rather than filled in with the layer
+# sum (1.535 mm): the sum is a different quantity and quoting it as the
+# finished thickness would invent a tolerance nobody published.
+finished_thickness_mm: null
+
+rows: JLC0216.rows.txt
+
+targets:
+  - ohm=90,kind=diff,layer=L1,bottom_ref=L2,width=0.4625,spacing=0.2032,to_copper=0.2032
+
+provenance: >-
+  Rows pasted from JLCPCB's own stackup table. The target is from JLCPCB's
+  impedance calculator for this stackup, transcribed by hand for two
+  2-layer boards built on it, and checked against the calculator's own
+  figure. Note the width: 0.4625 mm is far wider than the 4- and 6-layer
+  entries need for the same 90 ohm, because the reference plane is a whole
+  1.465 mm core away rather than a prepreg.

@@ -1,0 +1,5 @@
+JLC0216
+Layer	Material	Thickness (mil)	Thickness (mm)
+L1	Outer Copper Weight	1.38	0.0350
+Core	1.5mm 1/1OZ with copper (double-sided)	57.68	1.4650
+L2	Outer Copper Weight	1.38	0.0350

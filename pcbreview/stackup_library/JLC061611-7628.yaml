@@ -1,0 +1,20 @@
+code: JLC061611-7628
+fab: JLCPCB
+title: 6 layer, 1.6 mm, 7628 prepreg
+summary: JLCPCB's standard 6-layer — two 0.25 mm cores, a 3313 sheet at the centre
+
+copper_layers: 6
+
+# Stated by the fab's own header line: "Standard/Finished thickness1.6mm+-10%".
+finished_thickness_mm: 1.6
+
+rows: JLC061611-7628.rows.txt
+
+targets:
+  - ohm=90,kind=diff,layer=L1,bottom_ref=L2,width=0.2703,spacing=0.2032,to_copper=0.2032
+
+provenance: >-
+  Rows pasted from JLCPCB's own stackup table. The targets are from
+  JLCPCB's impedance calculator for this stackup, transcribed by hand for
+  a 6-layer board built on it, and checked against the calculator's own
+  figures.

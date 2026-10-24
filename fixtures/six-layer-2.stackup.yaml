@@ -1,0 +1,91 @@
+name: Six-layer 1.55 mm, 1 oz outer / 0.5 oz inner (worked example)
+fab_code: JLC06161H-3313
+finished_thickness_mm: 1.54
+layer_map:
+  L1: F.Cu
+  L2: In1.Cu
+  L3: In2.Cu
+  L4: In3.Cu
+  L5: In4.Cu
+  L6: B.Cu
+layers:
+- role: copper
+  name: L1
+  material: Outer Copper Weight1oz
+  thickness_mm: 0.035
+  copper_weight_oz: 1.0
+  epsilon_r_source: unset
+- role: prepreg
+  name: prepreg1
+  material: 3313 RC57% 4.2mil
+  thickness_mm: 0.0994
+  epsilon_r: 4.25
+  loss_tangent: 0.02
+  epsilon_r_source: glass_style_default
+- role: copper
+  name: L2
+  material: Inner Copper Weight
+  thickness_mm: 0.0152
+  copper_weight_oz: 0.5
+  epsilon_r_source: unset
+- role: core
+  name: core2
+  material: 0.55mm H/Hwithout copper
+  thickness_mm: 0.55
+  epsilon_r: 4.5
+  loss_tangent: 0.02
+  epsilon_r_source: core_default
+- role: copper
+  name: L3
+  material: Inner Copper Weight
+  thickness_mm: 0.0152
+  copper_weight_oz: 0.5
+  epsilon_r_source: unset
+- role: prepreg
+  name: prepreg3
+  material: 2116 RC54% 4.9mil
+  thickness_mm: 0.1088
+  epsilon_r: 4.35
+  loss_tangent: 0.02
+  epsilon_r_source: glass_style_default
+- role: copper
+  name: L4
+  material: Inner Copper Weight
+  thickness_mm: 0.0152
+  copper_weight_oz: 0.5
+  epsilon_r_source: unset
+- role: core
+  name: core4
+  material: 0.55mm H/Hwithout copper
+  thickness_mm: 0.55
+  epsilon_r: 4.5
+  loss_tangent: 0.02
+  epsilon_r_source: core_default
+- role: copper
+  name: L5
+  material: Inner Copper Weight
+  thickness_mm: 0.0152
+  copper_weight_oz: 0.5
+  epsilon_r_source: unset
+- role: prepreg
+  name: prepreg5
+  material: 3313 RC57% 4.2mil
+  thickness_mm: 0.0994
+  epsilon_r: 4.25
+  loss_tangent: 0.02
+  epsilon_r_source: glass_style_default
+- role: copper
+  name: L6
+  material: Outer Copper Weight1oz
+  thickness_mm: 0.035
+  copper_weight_oz: 1.0
+  epsilon_r_source: unset
+impedance_targets:
+- impedance_ohm: 90
+  kind: differential
+  signal_layer: L1
+  bottom_ref: L2
+  trace_width_mm: 0.1494
+  trace_spacing_mm: 0.2032
+  trace_to_copper_mm: 0.2032
+

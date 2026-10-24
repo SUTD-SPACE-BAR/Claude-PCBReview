@@ -1,0 +1,39 @@
+# Analysis-side dependencies. These go on YOUR Python (3.10+), NOT on KiCad's.
+#
+# There are two interpreters and they cannot be merged: KiCad's bundled Python
+# has `pcbnew` and no numpy/shapely, and everything downstream of extract.py
+# needs the opposite. See INSTALL/HANDOFF §4.
+#
+#   python3 -m pip install -r requirements.txt
+#
+# Versions are the ones this was developed and validated against; the floors
+# are what the code actually requires.
+
+shapely>=2.0          # STRtree.query returns positional indices from 2.0 on
+numpy>=1.24
+scipy>=1.10           # sparse factorisation for the field solver
+scikit-rf>=0.29       # Hammerstad-Jensen microstrip, dispersion, loss
+pyyaml>=6.0           # stackup files
+sexpdata>=1.0         # .kicad_sch reader
+pytest>=7.0           # tests only
+
+# OPTIONAL, and everything works without it. `pcbreview.parts` reads thermal
+# figures out of a datasheet's own tables with this, and `--pages` prints a
+# document's text for Claude to read the rest. Without it both are skipped and
+# say so, and the LCSC catalogue stage still runs. Nothing silently degrades.
+#
+#   python3 -m pip install pdfplumber
+#
+# pdfplumber>=0.11
+
+# Removed 2026-08-10, both verified unused by grep over the whole tree:
+#
+#   networkx>=3.0     never imported anywhere.
+#   rtree>=1.0        was shapely 1.x's spatial index backend. Shapely 2 ships
+#                     its own GEOS-backed `shapely.strtree.STRtree`, which is
+#                     what all five call sites use, and the floor above is
+#                     already `shapely>=2.0`.
+#
+# Weight, measured on Windows: scipy 115 MB and numpy 34 MB are 95% of this
+# list and neither is negotiable — the field solver is a sparse LU per
+# cross-section. shapely is 2.8 MB, scikit-rf 5.6 MB, the rest under 1 MB.

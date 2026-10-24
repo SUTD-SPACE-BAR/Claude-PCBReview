@@ -1,0 +1,15 @@
+JLC061611-7628(Standard/Finished thickness1.6mm±10%)
+Layer	Material	Thickness (mil)	Thickness (mm)
+L1	Outer Copper Weight1oz	1.38	0.0350
+Prepreg	7628, RC 49%, 8.6 mil	7.99	0.2030
+L2	Inner Copper Weight	1.18	0.0300
+Core	0.25mm 1/1OZ without copper	9.84	0.2500
+L3	Inner Copper Weight	1.18	0.0300
+Prepreg	7628, RC 49%, 8.6 mil	7.99	0.2030
+Prepreg	3313 RC57% 4.2mil	4.21	0.1070
+Prepreg	7628, RC 49%, 8.6 mil	7.99	0.2030
+L4	Inner Copper Weight	1.18	0.0300
+Core	0.25mm 1/1OZ without copper	9.84	0.2500
+L5	Inner Copper Weight	1.18	0.0300
+Prepreg	7628, RC 49%, 8.6 mil	7.99	0.2030
+L6	Outer Copper Weight1oz	1.38	0.0350

@@ -1,0 +1,123 @@
+# EXAMPLE thermal manifest — every number here is illustrative.
+#
+# ALL VALUES BELOW ARE MADE UP. Do not copy one into a real manifest. They
+# exist to show the shape of the file and the two entry styles; a fabricated
+# theta_JA sitting beside a real board is exactly how a wrong number comes to
+# be trusted.
+#
+# Claude writes this file, reading each number out of a PDF datasheet the user
+# supplied. It never reads a symbol field and never follows a datasheet URL
+# found in one — people are careless about those fields, and an unattributed
+# thermal number is indistinguishable from a guess.
+#
+# Save it beside the board as `<board>.thermal.yaml` and the audit finds it on
+# its own, or pass it as the fourth argument.
+#
+#   python3 -m pcbreview.audit board.kicad_pcb stackup.yaml board.kicad_sch \
+#       board.thermal.yaml
+#
+# EVERY datasheet the user supplies gets an entry here — not only the ones the
+# audit's shortlist asked for. The shortlist says which PDFs to go and find;
+# it has no authority over one that has already arrived. A conclusion that
+# exists only in a chat reply will not survive the next run.
+
+# The still-air ambient the part sits in, not room temperature. A sealed
+# enclosure is not 25 C inside, and this is the single assumption that most
+# changes the answer.
+ambient_c: 25.0
+
+parts:
+
+  # --- the ordinary case: the datasheet quotes a thermal resistance ---------
+  U1:
+    part: EXAMPLE-REG-3V3
+    theta_ja_c_per_w: 52.0
+    theta_jc_c_per_w: 6.5           # optional; the case path, if quoted
+    t_junction_max_c: 125.0
+    dissipation_w: 0.62
+    # `source` is required, and it is the whole point of the entry: it names
+    # the document and the page, so the number can be checked without asking
+    # anyone what they meant.
+    source: "EXAMPLE-REG-3V3 datasheet rev C p.4 — Thermal Information,
+      RthJA 52 C/W on the JEDEC 2s2p board; Tj(max) 125 C"
+    # `note` is free text and survives into the finding. Use it for anything
+    # the arithmetic cannot carry.
+    note: "0.62 W is (5.0 - 3.3) x 365 mA at the worst-case load"
+
+  # --- the second case: the datasheet states NO thermal resistance ----------
+  #
+  # This happens, and it concentrates in second-source parts, which is where
+  # the risk is. The absence must be DECLARED: an omitted key cannot be told
+  # apart from a forgotten one, and the two mean opposite things. Giving both
+  # `theta_ja_c_per_w` and `theta_ja_stated: false` is refused.
+  #
+  # The check then reports the theta_JA the part WOULD need to stay inside its
+  # rating, which is the one number still computable, and ranks it above
+  # everything that passes — it is the open question, not the good news.
+  U9:
+    part: EXAMPLE-HBRIDGE
+    theta_ja_stated: false
+    t_junction_max_c: 150.0
+    dissipation_w: 1.78
+    source: "EXAMPLE-HBRIDGE datasheet rev A p.3-4 — no theta_JA and no PD
+      figure anywhere in the document"
+    note: "1.78 W is 5 A through the quoted 71 mOhm channel resistance"
+
+# What the loader refuses, and why each refusal is deliberate:
+#
+#   * a missing `dissipation_w` — it would read as 0 W and report a
+#     comfortable junction temperature, which is a silent zero;
+#   * a missing `source` — see above;
+#   * `theta_ja_c_per_w` absent without `theta_ja_stated: false`;
+#   * both of those given together;
+#   * a designator the board does not have — that is a transcription error,
+#     and it is reported as one rather than being given a temperature.
+#
+# The largest error here is never the arithmetic. `theta_JA` is a property of
+# JEDEC's test board (JESD51-2/51-7 fix the geometry precisely so that two
+# vendors' numbers compare), and on a small board with a starved thermal pad
+# the real figure is routinely 1.5-3x higher. Every finding says so. Treat the
+# result as a ranking, not as a temperature.
+
+# ---------------------------------------------------------------------------
+# Repeating the same part: YAML anchors work, and eight identical eFuses is the
+# normal shape of a multichannel board. This turns a 300-line manifest into 120
+# and removes seven chances to typo one.
+#
+#   U7: &efuse
+#     part: EXAMPLE-EFUSE
+#     theta_ja_c_per_w: 60.0
+#     t_junction_max_c: 150.0
+#     dissipation_w: 0.30
+#     source: "synthetic example, every value here is made up"
+#   U8: *efuse
+#   U9: *efuse
+#
+# ---------------------------------------------------------------------------
+# When the datasheet quotes PD on a NAMED board instead of a theta_JA. Common
+# in second-source and Asian datasheets, and strictly more informative than
+# declaring the thermal resistance absent — theta_JA is (pd_at_tj_c - 25) / pd_w
+# on that board, which is the vendor's own measurement.
+#
+#   U12:
+#     part: EXAMPLE-LOAD-SWITCH
+#     pd_w: 2.4                 # requires pd_at_tj_c AND pd_board_note
+#     pd_at_tj_c: 150
+#     pd_board_note: "76.2 x 114.3 x 1.6 mm 4-layer, datasheet p.7"
+#     t_junction_max_c: 150.0
+#     dissipation_w: 0.70
+#     source: "synthetic example, every value here is made up"
+#
+# ---------------------------------------------------------------------------
+# When the datasheet states no Tj(max) at all — only a storage limit and an
+# operating AMBIENT range. Say which number you chose and why, and give the
+# ambient limit, which is often the binding one.
+#
+#   U13:
+#     part: EXAMPLE-DRIVER
+#     t_junction_max_stated: false
+#     t_junction_max_c: 150.0      # taken from Tstg; not a stated Tj max
+#     t_ambient_max_c: 85.0        # the real constraint for this part
+#     theta_ja_stated: false
+#     dissipation_w: 0.40
+#     source: "synthetic example, every value here is made up"

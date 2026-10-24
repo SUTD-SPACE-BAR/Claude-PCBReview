@@ -1,0 +1,26 @@
+# Mirrors packaging/build.py (EXCLUDE_NAMES, EXCLUDE_GLOBS): what never ships
+# never gets committed either. packaging/scan.py says why each one is here.
+
+# Caches. A run inside the tree writes board names into .cache/.
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+.venv/
+.history/
+dist/
+.DS_Store
+
+# The forbidden-name list is a list of the forbidden names. It stays local.
+private-names.txt
+# The development board registry names real designs (see tests/boards.py).
+boards_local.py
+
+# Somebody's design, whatever it is called.
+*.kicad_pcb
+*.kicad_sch
+*.kicad_pro
+*.kicad_prl
+*.truth.json
+*.net
+*.zip

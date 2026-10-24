@@ -1,0 +1,19 @@
+code: JLC04161H-7628
+fab: JLCPCB
+title: 4 layer, 1.6 mm, 7628 prepreg
+summary: JLCPCB's standard 4-layer — 1.065 mm core, 7628 prepreg outside it
+
+copper_layers: 4
+
+# Stated by the fab's own header line: "Standard/Finished thickness1.59mm+-10%".
+finished_thickness_mm: 1.59
+
+rows: JLC04161H-7628.rows.txt
+
+targets:
+  - ohm=90,kind=diff,layer=L1,bottom_ref=L2,width=0.2703,spacing=0.2032,to_copper=0.2032
+
+provenance: >-
+  Rows pasted from JLCPCB's own stackup table. The target is from JLCPCB's
+  impedance calculator for this stackup, transcribed by hand for a 4-layer
+  board built on it, and checked against the calculator's own figure.

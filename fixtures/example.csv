@@ -1,0 +1,9 @@
+Reference,Value,Footprint,Qty,DNP
+"C1,C2",100n,C_0402_1005Metric,2,
+"C3",10u,C_0805_2012Metric,1,
+"R1,R2,R3",10k,R_0402_1005Metric,3,
+"R4",0R,R_0402_1005Metric,1,DNP
+"U1",EXAMPLE-REG-3V3,SOT-23-5,1,
+"U2",EXAMPLE-MCU-64,LQFP-64_10x10mm_P0.5mm,1,
+"D1",EXAMPLE-SCHOTTKY-40V,SOD-123,1,
+"J1",Conn_02x05_Odd_Even,PinHeader_2x05_P2.54mm_Vertical,1,
