@@ -229,7 +229,7 @@ class Declaration:
     #:
     #: A conductor energised for a second once per flight can run far hotter
     #: than one carrying continuous current, and that is the designer's call to
-    #: state — not the tool's to assume. IPC-2221 already takes rise as a
+    #: state — not the tool's to assume. IPC-2152 already takes rise as a
     #: parameter, so honouring it per net is plumbing rather than new physics.
     rise_c: float | None = None
 

@@ -419,7 +419,7 @@ class Trace:
     narrowest_mm: float
     narrowest_layer: str
     rise_c: float
-    #: IPC-2221 for the weakest strand. `None` only if the trace has no copper,
+    #: IPC-2152 for the weakest strand. `None` only if the trace has no copper,
     #: which cannot happen — kept typed that way to match `Ampacity`.
     capacity_a: float | None = None
     #: weakest interior barrel, or `None` when the run has no via in series
@@ -557,7 +557,7 @@ def build_traces(board: Board, net: int | str,
     """A net's routed copper, decomposed into pin-to-pin runs.
 
     Returns one `Trace` per edge of the net's copper graph, each carrying its
-    own narrowest point and IPC-2221 capacity. Zones are **not** included; see
+    own narrowest point and IPC-2152 capacity. Zones are **not** included; see
     this section's header for why a pour is not a trace.
 
     `copper_oz_by_layer` should be `audit._copper_oz_by_layer(board)` so that a

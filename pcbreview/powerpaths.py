@@ -54,8 +54,8 @@ import yaml
 
 from pcbreview import boardheat
 
-#: Allowed conductor temperature rise when a path states none. IPC-2221's
-#: conventional working point and the same strict default `current_capacity`
+#: Allowed conductor temperature rise when a path states none. The IPC
+#: charts' conventional working point and the same strict default `current_capacity`
 #: uses; a pulsed or deliberately hot path should say what it may reach.
 DEFAULT_RISE_C = 10.0
 

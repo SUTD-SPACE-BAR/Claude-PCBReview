@@ -99,29 +99,134 @@ def test_a_lumped_plate_reaches_one_minus_e_at_tau():
     assert pulsed == pytest.approx(steady * (1 - math.exp(-1)), rel=0.005)
 
 
-def test_ipc_2221s_own_working_point_lands_below_it():
-    """IPC-2221: a 1 mm, 1 oz external trace carries 2.39 A at a 10 C rise.
-    On a bare 76 mm laminate card in still air this model gives 7-9 C — below
-    IPC-2221, which is the conservative chart, and in the right place."""
-    cell = 0.25
-    n = int(76.2 / cell)
-    gap = 1.53e-3
-    area = (cell * 1e-3) ** 2
-    s = sheets(2, n, n, cell, kt=0.0, vertical=area * 0.3 / gap,
-               h_top=12.0, h_bottom=12.0)
-    lam = boardheat.K_LAMINATE_XY_W_MK * gap / 2
-    s.kt["L0"][:] = lam
-    s.kt["L1"][:] = lam
-    rows = slice(n // 2 - 2, n // 2 + 2)          # 4 cells = 1 mm wide
-    s.kt["L0"][rows, :] += CU * 35e-6
+# -- IPC-2152: the one measured reference --------------------------------
+#
+# IPC-2152's baseline: one trace on a 1.78 mm board with no copper planes, in
+# still air, its rise taken as the trace's average from its resistance over
+# the middle 6 in of a 12 in run. Modelled as an infinitely long trace
+# (insulated ends, uniform heating) on a board wide enough that its edges do
+# not matter, with copper resistance following the trace's temperature as it
+# does on the bench. The reference is Brooks's fits to IPC-2152's charts
+# ("Trace Currents and Temperatures Revisited", Eq. 3-2 and Table 3-1).
+
+MIL = 0.0254
+IPC2152_BOARD_MM = 1.778
+
+
+def _ipc2152_reference(current, width_mil, oz, internal):
+    t_mil = oz * 0.0348 / MIL
+    if not internal:
+        return 215.3 * current ** 2 * width_mil ** -1.15 * t_mil ** -1.0
+    if oz == 1:
+        return 200 * current ** 1.9 * width_mil ** -1.10 * t_mil ** -1.52
+    return 300 * current ** 2 * width_mil ** -1.15 * t_mil ** -1.52
+
+
+def _current_for(rise, width_mil, oz, internal):
+    lo, hi = 1e-3, 500.0
+    for _ in range(80):
+        mid = (lo * hi) ** 0.5
+        lo, hi = ((mid, hi) if _ipc2152_reference(mid, width_mil, oz, internal)
+                  < rise else (lo, mid))
+    return (lo * hi) ** 0.5
+
+
+def _ipc_trace_rise(current, width_mil, oz, internal=False,
+                    h=None, cells_across=6, half_width_mm=50.0):
+    """The model's average rise of a long trace on IPC-2152's test board."""
+    h = boardheat.ENVIRONMENTS["still_air"] if h is None else h
+    w_mm = width_mil * MIL
+    t_m = oz * 0.0348e-3
+    cell = w_mm / cells_across
+    ny = int(round(2 * half_width_mm / cell))
+    ny += (ny - cells_across) % 2
+    nx, area = 4, (cell * 1e-3) ** 2
+    n_layers = 3 if internal else 2
+    gap = IPC2152_BOARD_MM * 1e-3 / (n_layers - 1)
+    s = sheets(n_layers, ny, nx, cell, kt=0.0,
+               vertical=area * boardheat.K_LAMINATE_Z_W_MK / gap,
+               h_top=h, h_bottom=h)
+    for k, name in enumerate(s.layers):
+        share = gap / 2 if k in (0, n_layers - 1) else gap
+        s.kt[name][:] = boardheat.K_LAMINATE_XY_W_MK * share
+    trace = s.layers[1 if internal else 0]
+    rows = slice((ny - cells_across) // 2, (ny + cells_across) // 2)
+    s.kt[trace][rows, :] += CU * t_m
     model = boardheat.HeatModel(s)
-    q = model.zeros()
-    r_per_m = 1.72e-8 / (1e-3 * 35e-6)
-    per_cell = 2.39 ** 2 * r_per_m * cell * 1e-3 / 4
-    idx = np.arange(model.n_cells).reshape(n, n)
-    q[idx[rows, :].ravel()] = per_cell
-    peak = np.nanmax(model.steady(q).rise_c["L0"])
-    assert 6.0 <= peak <= 10.0
+    offset = s.layers.index(trace) * model.n_cells
+    idx = np.arange(model.n_cells).reshape(ny, nx)[rows, :].ravel() + offset
+    rise = 0.0
+    for _ in range(40):
+        rho = 1.72e-8 * (1 + 0.00393 * (25.0 + rise - 20.0))
+        q = model.zeros()
+        q[idx] = current ** 2 * rho / (w_mm * 1e-3 * t_m) * cell * 1e-3 / cells_across
+        new = float(np.mean(model.steady(q).rise_c[trace][rows, :]))
+        if abs(new - rise) < 1e-5:
+            return new
+        rise = new
+    return rise
+
+
+def _ratios(internal):
+    weights = (1, 2) if internal else (1, 2, 3)
+    out = []
+    for oz in weights:
+        for width in (10, 20, 50, 100, 200, 400):
+            for rise in (10, 20, 45):
+                current = _current_for(rise, width, oz, internal)
+                out.append(_ipc_trace_rise(current, width, oz, internal) / rise)
+    return np.array(out)
+
+
+def test_still_air_reproduces_ipc_2152_on_outer_traces():
+    """54 cases, 1-3 oz, 10-400 mil, +10 to +45 C. `still_air` is fitted to
+    these, so on average it lands on IPC-2152; no case may read more than 20%
+    cooler (the unsafe side) or 25% hotter. The first version of this model
+    read about a third cooler on every one."""
+    ratios = _ratios(internal=False)
+    assert ratios.min() >= 0.80
+    assert ratios.max() <= 1.25
+    assert np.exp(np.log(ratios).mean()) == pytest.approx(1.0, abs=0.05)
+
+
+def test_still_air_errs_hot_on_inner_traces():
+    """36 cases. Fitted on outer traces, the model reads inner ones hotter
+    than IPC-2152 on average — the safe side — and never more than 20% cooler.
+    IPC-2152's own inner-trace data disagree between copper weights by more
+    than this (Brooks, Table 3-1), so the band is wider."""
+    ratios = _ratios(internal=True)
+    assert ratios.min() >= 0.80
+    assert ratios.max() <= 1.60
+    assert np.exp(np.log(ratios).mean()) >= 1.0
+
+
+def test_ipc_2221s_working_point_now_lands_on_ipc_2152():
+    """IPC-2221: 1 mm of 1 oz outer copper, 2.39 A, +10 C. IPC-2152 measures
+    +13.1 C for that trace. This model used to say +8.7 C and a test pinned it
+    at or below IPC-2221 — which enforced the optimism this recalibration
+    removes."""
+    width_mil = 1.0 / MIL
+    ipc2152 = _ipc2152_reference(2.39, width_mil, 1, False)
+    assert ipc2152 == pytest.approx(13.1, abs=0.1)
+    model = _ipc_trace_rise(2.39, width_mil, 1)
+    assert model >= 10.0
+    assert model == pytest.approx(ipc2152, rel=0.20)
+
+
+def test_the_comparison_does_not_depend_on_the_grid_or_the_board_width():
+    current = _current_for(10, 100, 2, False)
+    base = _ipc_trace_rise(current, 100, 2)
+    assert _ipc_trace_rise(current, 100, 2, cells_across=12) == pytest.approx(base, rel=0.01)
+    assert _ipc_trace_rise(current, 100, 2, half_width_mm=100.0) == pytest.approx(base, rel=0.01)
+
+
+def test_enclosed_stays_hotter_than_ipc_2152_on_every_case():
+    """The worst-case end of the bracket has to be worse than IPC-2152's still
+    air everywhere, or it is not a worst case."""
+    for oz, width, rise in ((1, 10, 10), (2, 100, 45), (3, 400, 10)):
+        current = _current_for(rise, width, oz, False)
+        assert _ipc_trace_rise(current, width, oz,
+                               h=boardheat.ENVIRONMENTS["enclosed"]) > rise
 
 
 def test_a_board_with_no_way_to_lose_heat_is_refused():

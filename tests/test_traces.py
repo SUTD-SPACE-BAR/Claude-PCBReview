@@ -240,12 +240,15 @@ def test_each_branch_of_a_tee_carries_its_own_capacity():
     thin = next(t for n, t in by_name.items() if "D1.1" in n)
     assert fat.capacity_a == pytest.approx(round(_capacity(2.0), 3))
     assert thin.capacity_a == pytest.approx(round(_capacity(0.2), 3))
-    assert fat.capacity_a > 5 * thin.capacity_a
+    # IPC-2152 capacity goes as W^0.575, so ten times the width is ~3.8x
+    assert fat.capacity_a > 3 * thin.capacity_a
 
 
-def test_an_inner_layer_run_carries_less_than_the_same_width_outside():
-    """IPC-2221's internal `k`, applied per strand from the strand's own layer
-    — the same rule `ampacity()` uses, so the two cannot disagree."""
+def test_an_inner_layer_run_carries_what_its_own_copper_carries():
+    """Each strand takes its own layer's copper weight — the same rule
+    `ampacity()` uses, so the two cannot disagree. Inner copper defaults to
+    0.5 oz and carries less for that reason alone: IPC-2152 is one chart for
+    every layer, and IPC-2221's halving of inner capacity is gone."""
     outer = _Board(tracks=[_track(0, 0, 0, 10, 0, width=0.5)],
                    pads=[_pad(0, "U1", "1", 0, 0), _pad(1, "U2", "1", 10, 0)])
     inner = _Board(tracks=[_track(0, 0, 0, 10, 0, width=0.5, layer="In1.Cu")],
@@ -256,6 +259,8 @@ def test_an_inner_layer_run_carries_less_than_the_same_width_outside():
     assert a.capacity_a > b.capacity_a
     assert b.capacity_a == pytest.approx(
         round(_capacity(0.5, oz=0.5, internal=True), 3))
+    same_weight = topology.build_traces(inner, 1, {"In1.Cu": 1.0})[0]
+    assert same_weight.capacity_a == pytest.approx(a.capacity_a)
 
 
 def test_a_via_in_series_is_reported_beside_the_copper_never_merged_into_it():

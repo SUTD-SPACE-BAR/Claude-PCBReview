@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from pcbreview import powerpaths
+from pcbreview import boardheat, powerpaths
 
 GOOD = """\
 environment: still_air
@@ -48,7 +48,8 @@ def _load(tmp_path, text):
 
 def test_a_complete_manifest_loads_as_written(tmp_path):
     m = _load(tmp_path, GOOD)
-    assert m.environment == "still_air" and m.surface_w_m2k == 12.0
+    assert m.environment == "still_air"
+    assert m.surface_w_m2k == boardheat.ENVIRONMENTS["still_air"]
     assert m.ambient_c == 40 and m.mounts == {"H1": 0.05}
     rail = m.path("rail")
     assert rail.current_a == pytest.approx(2.5)

@@ -117,6 +117,28 @@ def test_temperatures_order_with_the_surroundings(tmp_path):
     assert result.verdict_env == "enclosed" and not result.verdict_declared
 
 
+def test_own_rise_is_judged_in_still_air_and_the_board_at_the_worst_case(tmp_path):
+    """IPC-2152 defines a conductor's rise in still air, and the default +10 C
+    allowance comes from there; an absolute board limit is judged at the
+    worst case. A declared environment overrides both."""
+    result = ampacity.evaluate(FakeBoard(), _manifest(tmp_path, PATH),
+                               thermal_cell_mm=0.5)
+    assert result.rise_env == "still_air" and result.verdict_env == "enclosed"
+    own, = _find(result, ["its own current heats"])
+    board, = _find(result, ["the board reaches"])
+    still = result.scenarios[0].by_env["still_air"].path_rise["strip"]
+    assert own.measurement["environment"] == "still_air"
+    assert own.measurement["rise_c"] == pytest.approx(still, abs=0.01)
+    assert board.measurement["environment"] == "enclosed"
+
+    declared = ampacity.evaluate(
+        FakeBoard(), _manifest(tmp_path, "environment: forced_air\n" + PATH),
+        thermal_cell_mm=0.5)
+    assert declared.rise_env == declared.verdict_env == "forced_air"
+    own, = _find(declared, ["its own current heats"])
+    assert own.measurement["environment"] == "forced_air"
+
+
 def test_the_mean_board_rise_balances_the_loss_against_the_surface(tmp_path):
     """Energy has nowhere else to go, so area-weighted mean rise of the two
     faces times the surface conductance must equal the copper loss."""

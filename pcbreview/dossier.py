@@ -22,7 +22,7 @@ The ruling (HANDOFF §8) is that hover is pure retrieval: nothing is computed
 *because* you hovered. What that has to mean in practice, stated plainly rather
 than blurred:
 
-* **Precomputed, at build time.** Every net's `Ampacity` — the IPC-2221 closed
+* **Precomputed, at build time.** Every net's `Ampacity` — the IPC-2152 closed
   form over the whole board, which the caching note §1 lists as one of the two gaps to
   close for full hover coverage. Every net's poured copper, pads, vias, and the
   findings naming it. This is the part that costs real time, and it is paid
@@ -140,7 +140,7 @@ def _net_rows(board, net, measured) -> list[Row]:
     if measured.weakest_a is not None:
         rows.append(Row(
             "carries", _fmt(measured.weakest_a, 2), "A",
-            basis=(f"IPC-2221 at a {measured.rise_c:.0f} °C rise over the "
+            basis=(f"IPC-2152 at a {measured.rise_c:.0f} °C rise over the "
                    f"weakest significant stretch — {_fmt(measured.weakest_mm)} "
                    f"mm on {measured.weakest_layer}. Weakest by CAPACITY, not "
                    f"by width: an inner layer is thinner copper"),
@@ -162,7 +162,7 @@ def _net_rows(board, net, measured) -> list[Row]:
         rows.append(Row(
             "vias in parallel", _fmt(measured.via_capacity_a, 2), "A",
             basis=(f"{measured.vias} barrel(s), drill "
-                   f"{', '.join(_fmt(d) for d in drills)} mm, as IPC-2221 "
+                   f"{', '.join(_fmt(d) for d in drills)} mm, as IPC-2152 "
                    f"conductors of circumference width. Deliberately NOT "
                    f"combined with the track figure: which vias are in series "
                    f"with which stretch is a topology question this does not "
@@ -324,7 +324,7 @@ def _trace_dict(trace, board) -> dict:
     if trace.capacity_a is not None:
         rows.append(Row(
             "this run carries", _fmt(trace.capacity_a, 2), "A",
-            basis=(f"IPC-2221 at a {trace.rise_c:.0f} °C rise for this run's "
+            basis=(f"IPC-2152 at a {trace.rise_c:.0f} °C rise for this run's "
                    f"narrowest point, {_fmt(trace.narrowest_mm)} mm on "
                    f"{trace.narrowest_layer}. No significance floor: every "
                    f"part of a series run carries the whole current, so the "
@@ -548,7 +548,7 @@ class BoardIndex:
                 length, amps = entry
                 rows.append(Row(
                     "this width carries", _fmt(amps, 2), "A",
-                    basis=(f"IPC-2221 at a {dossier.ampacity.rise_c:.0f} °C "
+                    basis=(f"IPC-2152 at a {dossier.ampacity.rise_c:.0f} °C "
                            f"rise for {_fmt(track.width_mm)} mm on "
                            f"{track.layer}, over the {_fmt(length, 2)} mm the "
                            f"net routes at this width"),
@@ -571,7 +571,7 @@ class BoardIndex:
             Row("at", f"({via.pos[0]:.3f}, {via.pos[1]:.3f})", "mm"),
             Row("carries", _fmt(current_module.via_capacity_a(via.drill_mm), 2),
                 "A",
-                basis=("this barrel alone as an IPC-2221 conductor whose width "
+                basis=("this barrel alone as an IPC-2152 conductor whose width "
                        "is its circumference and whose thickness is the "
                        "plating. The net's row above sums every barrel on it"),
                 assumption=(f"{current_module.VIA_PLATING_UM:.0f} µm plating, "
@@ -652,7 +652,7 @@ class BoardIndex:
                 _fmt(measured["width_mm"], 3), "mm",
                 basis=f"between {between}. {caveat}"),
             Row("that channel carries", _fmt(measured["amps"], 2), "A",
-                basis=(f"IPC-2221 at a {current_module.RISE_C:.0f} °C rise for "
+                basis=(f"IPC-2152 at a {current_module.RISE_C:.0f} °C rise for "
                        f"{_fmt(measured['width_mm'], 3)} mm of "
                        f"{measured['oz']:g} oz copper on {layer} "
                        f"({'inner' if measured['internal'] else 'outer'}). "

@@ -18,8 +18,8 @@ What it is validated against, in order of independence from this code:
 | netlist | pin-for-pin against **KiCad's own net assignment** on complete hierarchical designs |
 | field solver | analytic limits, two independent closed forms (IPC-2141 stripline, Hammerstad-Jensen microstrip), and **the fab's own published impedance targets** |
 | crosstalk | two **exact physical identities**, which hold to solver precision or not at all |
-| current capacity | IPC-2221, and a Laplace solve checked against a rectangle's closed form |
-| power paths | closed form for every solver piece (strip, annulus, barrels, point source, transient), IPC-2221's own working point, and energy balance on a real board |
+| current capacity | **IPC-2152's measured still-air chart** (Brooks's published fit), and a Laplace solve checked against a rectangle's closed form |
+| power paths | closed form for every solver piece (strip, annulus, barrels, point source, transient), **IPC-2152's measured trace temperatures** on 90 cases, and energy balance on a real board |
 
 **Two things this deliberately does not do.** It does not claim EMC pass or
 fail — nothing here is a substitute for a chamber. And it does not decide what
@@ -884,14 +884,17 @@ to ambient at a footprint.
 | constant | value | source |
 |---|---|---|
 | `K_COPPER_W_MK` | 385 | handbook |
-| `K_LAMINATE_XY_W_MK` / `_Z_` | 0.8 / 0.3 | FR-4 datasheet ranges, xy 0.6-1.0, z 0.25-0.40 |
+| `K_LAMINATE_XY_W_MK` / `_Z_` | 0.49 / 0.3 | in-plane: **IPC-2152's measured value** for its FR-4 test vehicles (0.0124 W/in-C). The datasheet 0.8 it replaced made every trace about a third cooler than IPC-2152 measures. Through-plane: datasheet 0.25-0.40; a single trace's rise moves 2% between 0.3 and 0.49 |
 | `C_COPPER_J_M3K` / `C_LAMINATE_` | 8960 x 385 / 1850 x 1100 | handbook |
-| `ENVIRONMENTS` | enclosed 5, still_air 12, forced_air 30 W/m^2K per face | natural convection 4-8 plus grey-body radiation 5-6 at emissivity 0.9; a closed bay suppresses most convection; 1-2 m/s across a board. Judgement, declared |
+| `ENVIRONMENTS` | enclosed 5, still_air 8.1, forced_air 30 W/m^2K per face | still_air **fitted to IPC-2152's baseline** with the laminate above (see Validation); enclosed a stated worse case, 1.09-1.63x IPC-2152's rise; forced_air ~1-2 m/s, textbook |
 
-**Temperatures are only ever reported as a bracket over `ENVIRONMENTS`.** The
-verdict environment is the manifest's, or `enclosed` when none is declared —
-the worst, under the standing preference for a false positive over a silent
-pass — and the finding then asks which it is.
+**Temperatures are only ever reported as a bracket over `ENVIRONMENTS`.**
+With an environment declared, every verdict is taken there. Without one, a
+conductor's **own rise** is judged in `still_air` (`RISE_VERDICT_ENVIRONMENT`)
+— where IPC-2152 defines a rise and the +10 C default comes from — and the
+**board's temperature** against absolute limits in `enclosed`
+(`DEFAULT_VERDICT_ENVIRONMENT`), the worst, under the standing preference for
+a false positive over a silent pass. Each finding asks which it really is.
 
 Superposition is used deliberately and is exact because the model is linear:
 one factorisation per environment serves every path and part as a separate
@@ -913,7 +916,8 @@ the pulse's own transient from zero, so each pulse is solved once.
 | two sheets, top heated | the 1-D network by hand | exact |
 | point source on a sheet | ``P K0(r/l) / (2 pi k t)`` | within 0.1% at 5, 10, 20 mm |
 | lumped transient at ``t = tau`` | ``1 - exp(-1)`` | -0.07% |
-| IPC-2221: 1 mm, 1 oz, 2.39 A on a bare 76 mm card | +10 C | **+8.7 C** — below IPC, which is conservative |
+| IPC-2152 baseline: one trace, 1.78 mm board, no planes, still air; 1-3 oz, 10-400 mil, +10 to +45 C | Brooks's fits to IPC-2152's charts | outer 0.86-1.19x (54 cases, mean 1.00 — the fit); inner 0.93-1.50x (36 cases, hot side) |
+| IPC-2221's working point: 1 mm, 1 oz, 2.39 A | IPC-2152: +13.1 C | lands within 20%; the first version read **+8.7 C**, a third too cool on every case |
 | a six-layer board, 12 declared paths | energy balance at every sink | within 2% |
 | the same, grid halved 0.1 -> 0.05 mm | drop | moved 0.3% to 7.1%, always downward |
 | the same, `--coupled` | hot copper | loss up 9-12% with the board at up to +22 C |
@@ -927,7 +931,7 @@ been compared with a thermocouple on a real board.
 | finding | minor / major / critical | why |
 |---|---|---|
 | drop over `max_drop_mv` | 1x / 1.5x / 3x | only when the path declares a limit; otherwise the drop is reported as a fact |
-| busiest barrel over IPC-2221 at the path's rise | 1x / 1.5x / 2.5x | IPC treats a barrel as a long conductor; a real one is 1.6 mm between two heat sinks and runs cooler, so major starts at 1.5x |
+| busiest barrel over IPC-2152 at the path's rise | 1x / 1.5x / 2.5x | IPC treats a barrel as a long conductor; a real one is 1.6 mm between two heat sinks and runs cooler, so major starts at 1.5x |
 | a path's **own** copper rise over its `rise_c` | 1x / 2x / 4x | the IPC sense of "rise"; 4x the 10 C default is 40 C from current alone |
 | the board, absolute | — / 90 C / 105 C | FR-4 laminates 105-130 C continuous, solder mask and most board-mount connectors 85-105 C; major leaves room for the environment's error |
 | neighbour heating under a part | 10 C | moves a junction estimate by more than its own arithmetic |
@@ -992,10 +996,24 @@ picture once its plot is cached.
 Microstrip comes from **scikit-rf** (Hammerstad-Jensen + Kirschning-Jansen
 dispersion + causal Djordjević-Svensson dielectric), not a reimplementation.
 Stripline is IPC-2141/Wadell, implemented here since scikit-rf lacks it.
-Current capacity is **IPC-2221**, deliberately — IPC-2152's correction factors
-are behind a paywalled standard, and most "IPC-2152 calculators" online in fact
-implement the IPC-2221 formula while labelling it 2152. IPC-2221 is
-conservative, which is the right direction to err.
+Current capacity is **IPC-2152**, the measured successor to IPC-2221's chart,
+through Brooks's published fit to its still-air external charts
+(`dT = 215.3 I^2 W^-1.15 t^-1.0`, mils; "Trace Currents and Temperatures
+Revisited", Eq. 3-2). One curve serves inner and outer layers, as IPC-2152's
+universal chart does; its data has inner traces running cooler, so that errs
+safe for them. No plane, board-thickness or material modifier is applied —
+planes would only add capacity. On a board under 3 x 3 in the audit states, as
+an assumption, that IPC-2152 recommends its conservative chart (IPC-2221's
+internal curve) and gives that figure.
+
+This replaced IPC-2221, which an earlier version kept "deliberately" as the
+conservative chart. It is not, for a bare outer trace: IPC-2152 allows ~25%
+less current than IPC-2221 for a wide one (3.92 A against 5.28 A at 3 mm, 1 oz,
++10 C) and somewhat more for a narrow one (0.83 A against 0.74 A at 0.2 mm),
+and dropped IPC-2221's external chart as safe only on boards over 3 x 3 in with
+planes. IPC-2221's internal curve, half the external, turned out to describe a
+conductor in free air. `physics.ipc2221_current_a` keeps the old formula for
+comparison.
 
 Validated against JLCPCB's own single-ended targets:
 

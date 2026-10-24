@@ -229,15 +229,16 @@ def test_choosing_the_largest_region_is_what_returned_nothing():
 
 # -- vias -----------------------------------------------------------------
 
-def test_via_capacity_matches_ipc2221_on_the_barrel():
+def test_via_capacity_matches_ipc2152_on_the_barrel():
     """A barrel is a conductor of width pi*d and thickness = plating."""
     import math
     expected = physics.current_capacity_a(math.pi * 0.5, 0.025, 10.0,
                                           internal=False)
     assert current.via_capacity_a(0.5, 25.0, 10.0) == pytest.approx(expected)
     # and the number itself, so a change in the constants is visible
-    assert current.via_capacity_a(0.5) == pytest.approx(2.6, abs=0.1)
-    assert current.via_capacity_a(0.3) == pytest.approx(1.8, abs=0.1)
+    # (IPC-2221 gave 2.6 and 1.8)
+    assert current.via_capacity_a(0.5) == pytest.approx(2.29, abs=0.02)
+    assert current.via_capacity_a(0.3) == pytest.approx(1.71, abs=0.02)
 
 
 def test_a_bigger_via_and_a_hotter_rise_both_carry_more():
@@ -336,14 +337,18 @@ def test_a_pad_entry_is_not_a_section_of_the_conductor():
     assert current.width_profile(board, "/P", OZ) is None
 
 
-def test_the_weakest_stretch_is_by_capacity_not_by_width():
-    """A 1.0 mm stretch on an inner 0.5 oz layer carries less than a 0.3 mm one
-    on an outer 1 oz layer. Taking the extremes by *width* reported a ratio
-    below 1 on two real nets."""
-    board = _ProfileBoard([_Track("/P", 1.0, 20.0, layer="In1.Cu"),
+def test_the_profile_takes_the_weakest_stretch_by_capacity_not_by_width():
+    """A 0.45 mm stretch on an inner 0.5 oz layer carries less than a 0.3 mm
+    one on an outer 1 oz layer: IPC-2152 capacity goes as W^0.575 t^0.5, so
+    half the copper weight costs more than half again the width gives back.
+    Taking the extremes by *width* reported a ratio below 1 on two real nets.
+
+    (This test shared its name with the one further down until the
+    IPC-2152 move, so it never ran.)"""
+    board = _ProfileBoard([_Track("/P", 0.45, 20.0, layer="In1.Cu"),
                            _Track("/P", 0.3, 20.0, layer="F.Cu")])
     profile = current.width_profile(board, "/P", OZ)
-    assert profile.weakest_mm == 1.0          # wider, and still the weak one
+    assert profile.weakest_mm == 0.45         # wider, and still the weak one
     assert profile.weakest_layer == "In1.Cu"
     assert profile.capacity_ratio >= 1.0
 
@@ -493,9 +498,10 @@ def test_a_uniform_net_gets_an_ampacity_where_it_used_to_get_nothing():
 
 
 def test_the_weakest_stretch_is_by_capacity_not_by_width():
-    """A 1.0 mm run on an inner 0.5 oz layer carries less than a 0.2 mm run on
-    an outer 1 oz layer. Taking the extremes by width names the wrong stretch,
-    and this is live on a real board here."""
+    """A 0.45 mm run on an inner 0.5 oz layer carries less than a 0.3 mm run
+    on an outer 1 oz layer — thinner copper, not the layer, under IPC-2152.
+    Taking the extremes by width names the wrong stretch, and this is live on a
+    real board here."""
     class _T:
         def __init__(self, layer, width, length):
             self.layer, self.width_mm = layer, width
@@ -503,17 +509,17 @@ def test_the_weakest_stretch_is_by_capacity_not_by_width():
             self.net = "PWR"
 
     board = _uniform_board()
-    board.tracks = [_T("F.Cu", 0.2, 50.0), _T("In1.Cu", 1.0, 50.0)]
+    board.tracks = [_T("F.Cu", 0.3, 50.0), _T("In1.Cu", 0.45, 50.0)]
     measured = current.ampacity(board, "PWR",
                                {"F.Cu": 1.0, "In1.Cu": 0.5})
-    assert measured.weakest_layer == "In1.Cu"      # NOT the 0.2 mm outer run
-    assert measured.weakest_mm == 1.0
-    outer = measured.by_width[("F.Cu", 0.2)][1]
+    assert measured.weakest_layer == "In1.Cu"      # NOT the 0.3 mm outer run
+    assert measured.weakest_mm == 0.45
+    outer = measured.by_width[("F.Cu", 0.3)][1]
     assert measured.weakest_a < outer
 
 
 def test_a_higher_permitted_rise_carries_more_current():
-    """IPC-2221 takes the rise as a parameter, which is why honouring a per-net
+    """IPC-2152 takes the rise as a parameter, which is why honouring a per-net
     `rise_c` is plumbing rather than new physics — and why a pulsed firing
     channel need not be judged against a continuous 10 C rise."""
     board = _uniform_board()

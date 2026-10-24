@@ -165,22 +165,54 @@ def test_voltage_drop_is_ohms_law():
     assert voltage_drop_v(2.0, 50, 0.5, 0.035) == pytest.approx(2.0 * resistance)
 
 
-def test_ipc2221_internal_is_half_of_external():
-    """k = 0.024 internal against 0.048 external, same exponents."""
-    external = current_capacity_a(1.0, 0.0348, 10, internal=False)
-    internal = current_capacity_a(1.0, 0.0348, 10, internal=True)
-    assert internal / external == pytest.approx(0.5, rel=1e-9)
+def test_capacity_is_ipc2152_as_brooks_fits_its_charts():
+    """Brooks, "Trace Currents and Temperatures Revisited", Eq. 3-2: one fit
+    for IPC-2152's 2 oz and 3 oz still-air external charts. At 16 A a 100 mil
+    2 oz trace rises ~100 C — and the capacity at that rise is 16 A again."""
+    from pcbreview.physics import ipc2152_rise_c
+    two_oz = 2 * 0.0348
+    rise = ipc2152_rise_c(16.0, 2.54, two_oz)
+    assert rise == pytest.approx(215.3 * 16 ** 2 * 100 ** -1.15
+                                 / (two_oz / 0.0254), rel=1e-9)
+    assert 95 < rise < 105
+    assert current_capacity_a(2.54, two_oz, rise) == pytest.approx(16.0, rel=1e-9)
 
 
-def test_ipc2221_matches_published_values():
-    """1 mm of 1 oz outer copper carries roughly 2.3-2.5 A at 10 C rise."""
-    assert 2.2 < current_capacity_a(1.0, 0.0348, 10.0) < 2.6
+def test_ipc2152_is_one_chart_for_inner_and_outer_conductors():
+    """IPC-2152 recommends its universal chart for both, and measured inner
+    traces running as cool as outer ones or cooler — IPC-2221's halving of
+    inner capacity turned out to describe a conductor in free air."""
+    assert (current_capacity_a(1.0, 0.0348, 10, internal=True)
+            == current_capacity_a(1.0, 0.0348, 10, internal=False))
 
 
-def test_ipc2221_scales_as_delta_t_to_the_0_44():
+def test_ipc2152_scales_as_the_square_root_of_the_rise():
     low = current_capacity_a(1.0, 0.0348, 10.0)
     high = current_capacity_a(1.0, 0.0348, 20.0)
-    assert high / low == pytest.approx(2 ** 0.44, rel=1e-9)
+    assert high / low == pytest.approx(2 ** 0.5, rel=1e-9)
+
+
+def test_ipc2152_is_stricter_than_ipc2221_on_a_wide_outer_trace_only():
+    """The two standards disagree, and not in one direction. An earlier
+    docstring called IPC-2221 the conservative one; for a wide bare outer trace
+    IPC-2152 allows ~25% less, and for a narrow one somewhat more."""
+    from pcbreview.physics import ipc2221_current_a
+    wide_2152, wide_2221 = (current_capacity_a(3.0, 0.0348),
+                            ipc2221_current_a(3.0, 0.0348))
+    assert wide_2152 < 0.8 * wide_2221
+    assert current_capacity_a(0.2, 0.0348) > ipc2221_current_a(0.2, 0.0348)
+
+
+def test_ipc2221_is_kept_as_it_was_for_comparison():
+    """k = 0.024 internal against 0.048 external, dT^0.44, and 1 mm of 1 oz
+    outer copper at roughly 2.3-2.5 A for a 10 C rise."""
+    from pcbreview.physics import ipc2221_current_a
+    external = ipc2221_current_a(1.0, 0.0348, 10, internal=False)
+    assert ipc2221_current_a(1.0, 0.0348, 10, internal=True) / external \
+        == pytest.approx(0.5, rel=1e-9)
+    assert 2.2 < external < 2.6
+    assert ipc2221_current_a(1.0, 0.0348, 20.0) / external \
+        == pytest.approx(2 ** 0.44, rel=1e-9)
 
 
 def test_required_width_inverts_current_capacity():

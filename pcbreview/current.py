@@ -10,13 +10,13 @@ Three measurements, and the first thing to know is which to use when.
 erosion radius: the largest ``r`` for which the copper, eroded by ``r``, still
 joins source to sink. The channel width is ``2r``. This is
 ``getMinimumTraceWidth()`` from the original brief, and it is what feeds
-IPC-2221.
+IPC-2152 (`physics.current_capacity_a`).
 
 **A plane's real DC resistance** — `plane_resistance`. Rasterise the pour,
 build the five-point Laplacian over copper cells, merge each via cluster into
 one node and solve.
 
-**Via capacity** — `via_capacity_a`. A barrel is an IPC-2221 conductor whose
+**Via capacity** — `via_capacity_a`. A barrel is an IPC-2152 conductor whose
 width is its circumference and whose thickness is the plating.
 
 Erosion is the wrong measure for a plane, and this is not a subtlety
@@ -39,7 +39,7 @@ feeds eight identical channels from one source states its own expectation:
 every channel should look like every other channel. So the primary finding is
 **a terminal whose feed resistance is an outlier against its own net's median**,
 which needs no current at all and is exactly how the one real defect surfaced.
-The absolute IPC-2221 capacity is reported beside it, carrying `intent_needed`.
+The absolute IPC-2152 capacity is reported beside it, carrying `intent_needed`.
 
 Validation
 ----------
@@ -89,9 +89,9 @@ ELECTRODE_RADIUS_MM = 0.45
 #: Stated on every finding as an assumption because it scales capacity directly.
 VIA_PLATING_UM = 25.0
 
-#: Temperature rise the reported capacity is quoted at. 10 C is IPC-2221's
-#: conventional working point and the conservative one; 20 C is also quoted
-#: because power designs routinely allow it.
+#: Temperature rise the reported capacity is quoted at. 10 C is the IPC
+#: charts' conventional working point and the conservative one; 20 C is also
+#: quoted because power designs routinely allow it.
 RISE_C = 10.0
 
 #: Terminals a net needs before it is worth solving at all — **four, not
@@ -224,13 +224,13 @@ def bottleneck_mm(copper, a: Point, b: Point, hi: float = 8.0,
 
 def via_capacity_a(drill_mm: float, plating_um: float = VIA_PLATING_UM,
                    rise_c: float = RISE_C) -> float:
-    """A via barrel as an IPC-2221 conductor: width = circumference, t = plating.
+    """A via barrel as an IPC-2152 conductor: width = circumference, t = plating.
 
-    External `k`, because the barrel's heat leaves through both lands into
-    outer copper rather than being buried in laminate. Conservative in the
-    other direction: IPC-2221 assumes a long conductor in steady state and a
-    barrel is 1.6 mm long between two heat sinks, so a real via tolerates more
-    than this says.
+    The same still-air chart as a track. Conservative: the chart describes a
+    long conductor in steady state, and a barrel is 1.6 mm long between two
+    lands that sink its heat into the copper either side, so a real via
+    tolerates more than this says. IPC-2152's appendix treats vias at length;
+    nothing here uses those curves, so this stays the conservative reading.
     """
     return physics.current_capacity_a(math.pi * drill_mm, plating_um / 1000.0,
                                       rise_c, internal=False)

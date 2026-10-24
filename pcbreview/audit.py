@@ -884,7 +884,7 @@ def check_conductor_necks(board: Board, rail_nets: set[str]) -> list[Finding]:
         thickness = 0.035 if outer else 0.0152
         capacity = physics.current_capacity_a(narrowest, thickness,
                                               internal=not outer)
-        # The drop the neck imposes when it is worked to its own IPC-2221
+        # The drop the neck imposes when it is worked to its own IPC-2152
         # rating. Needs no intent — the current is the neck's own capacity —
         # and it is what turns "0.74 A" into something a designer can weigh
         # against a rail's tolerance. (`physics.voltage_drop_v` had no caller
@@ -922,7 +922,7 @@ def check_conductor_necks(board: Board, rail_nets: set[str]) -> list[Finding]:
                     f"{w:.3f} mm for {l:.1f} mm" for w, l in
                     sorted(by_width.items(), key=lambda kv: -kv[1])[:4]),
                 f"{narrowest:.3f} mm carries {capacity:.2f} A at a 10 C rise "
-                f"(IPC-2221, {'external' if outer else 'internal'} layer)",
+                f"(IPC-2152, still air, {'outer' if outer else 'inner'} layer)",
                 f"at that {capacity:.2f} A the neck drops "
                 f"{drop_mv:.0f} mV over its {length:.2f} mm",
             ],
@@ -933,8 +933,8 @@ def check_conductor_necks(board: Board, rail_nets: set[str]) -> list[Finding]:
                          "stranded_pads": stranded},
             basis=("track widths weighted by routed length, then the net's "
                    "copper graph rebuilt without the narrow tracks to prove "
-                   "they carry the whole current; capacity from IPC-2221 "
-                   "rather than IPC-2152, which under-predicts and errs safe. "
+                   "they carry the whole current; capacity from IPC-2152's "
+                   "still-air chart, with no credit for nearby planes. "
                    "The length quoted is every narrow stretch on the net, not "
                    "one path, so it is not a series resistance"),
             intent_needed=(f"how much current {name} carries to those pads — "
@@ -1694,7 +1694,7 @@ def _unconnected_nets(pcb_path) -> tuple[dict[str, int], int, str | None]:
 
 #: How close a net's declared current may come to what its copper carries.
 #: Above 1.0 the conductor cannot deliver the stated current at the stated
-#: rise; below it, margin. A ratio of exactly 1.0 is not a pass — IPC-2221 is a
+#: rise; below it, margin. A ratio of exactly 1.0 is not a pass — IPC-2152 is a
 #: curve fit to charts, not a guarantee, and every real design leaves headroom.
 AMPACITY_MINOR = 0.80
 AMPACITY_MAJOR = 1.00
@@ -1745,7 +1745,7 @@ def _width_ampacity_table(board: Board, copper_oz_by_layer: dict) -> Finding:
                                  "routed_mm": mm, "amps": a}
                                 for l, w, mm, a in rows],
                      "rise_c": current_module.RISE_C},
-        basis=(f"IPC-2221 at a {current_module.RISE_C:.0f} C rise per routed "
+        basis=(f"IPC-2152 at a {current_module.RISE_C:.0f} C rise per routed "
                f"width, taking each layer's own copper weight from the bound "
                f"stackup"),
         intent_needed=("nothing — this is a property of the copper. What each "
@@ -1860,9 +1860,9 @@ def _ampacity_findings(board: Board, power_nets: set[str],
                          for (layer, width), value in
                          measured.by_width.items()},
         }
-        basis = (f"IPC-2221 at a {rise:.0f} C rise on the measured width of "
+        basis = (f"IPC-2152 at a {rise:.0f} C rise on the measured width of "
                  f"every routed stretch, taking each stretch's own layer and "
-                 f"copper weight; via barrels as IPC-2221 conductors of "
+                 f"copper weight; via barrels as IPC-2152 conductors of "
                  f"circumference width and plating thickness")
 
         if declared_a is None:
@@ -1921,8 +1921,8 @@ def _ampacity_findings(board: Board, power_nets: set[str],
                          "ratio_declared_to_available": round(ratio, 3)},
             basis=basis,
             assumption=(f"a {rise:.0f} C rise is acceptable on this net, which "
-                        f"the manifest states; IPC-2221 external/internal "
-                        f"curves; {current_module.VIA_PLATING_UM:.0f} um via "
+                        f"the manifest states; IPC-2152's still-air chart for "
+                        f"every layer; {current_module.VIA_PLATING_UM:.0f} um via "
                         f"plating"),
             intent_needed=(None if rise != current_module.RISE_C else
                            "whether this net is continuous — if it fires for a "
@@ -1947,7 +1947,7 @@ def check_current_capacity(board: Board, power_nets: set[str],
     reportable before the intent manifest exists — and it is exactly how the one
     real constriction found so far surfaced, at 9.3x its siblings.
 
-    The absolute IPC-2221 capacity is reported beside it and carries
+    The absolute IPC-2152 capacity is reported beside it and carries
     `intent_needed`, because turning it into a verdict needs the current.
 
     Method is chosen per net and stated on every finding: resistance for poured
@@ -2017,7 +2017,7 @@ def check_current_capacity(board: Board, power_nets: set[str],
                 headline = (f"narrowest channel {feed.bottleneck_mm:.2f} mm on "
                             f"{feed.layer}, {ratio:.1f}x the resistance its "
                             f"siblings see")
-                how = (f"erosion bottleneck on {feed.layer}; IPC-2221 gives "
+                how = (f"erosion bottleneck on {feed.layer}; IPC-2152 gives "
                        f"{feed.capacity_a:.1f} A at "
                        f"{current_module.RISE_C:.0f} C rise")
 
@@ -2129,7 +2129,7 @@ def check_current_capacity(board: Board, power_nets: set[str],
                 "by_width_mm": profile.by_width,
                 "total_mm": profile.total_mm,
             },
-            basis=(f"IPC-2221 at {current_module.RISE_C:.0f} C rise per routed "
+            basis=(f"IPC-2152 at {current_module.RISE_C:.0f} C rise per routed "
                    f"width, taking each width's weakest layer; stretches under "
                    f"{current_module.SIGNIFICANT_LENGTH_FRACTION:.0%} of the "
                    f"net are ignored as pad entries"),
@@ -2898,6 +2898,20 @@ def _audit(board: Board, schematic: Schematic | None = None,
     assumptions.append(
         "edge rate, current and noise margin are still not known for any net, "
         "so severity within a class remains a ranking rather than a verdict")
+    # IPC-2152's charts are for boards over 3 x 3 in, and on a smaller one it
+    # recommends its conservative chart. The capacity function cannot see the
+    # board, so the switch is said here, with the number it would give.
+    outline_area = (board.outline.area
+                    if board.outline is not None and not board.outline.is_empty
+                    else None)
+    if outline_area and outline_area < physics.IPC2152_MIN_BOARD_AREA_MM2:
+        assumptions.append(
+            f"every current capacity is IPC-2152's still-air chart, which is "
+            f"for boards over 3 x 3 in; this board is {outline_area:.0f} mm^2, "
+            f"and on a board that small IPC-2152 recommends its conservative "
+            f"chart (IPC-2221's internal curve), which allows about half the "
+            f"current — 0.72 A against 1.40 A for 0.5 mm of 1 oz at a 10 C "
+            f"rise")
 
     findings.sort(key=lambda f: f.rank)
     origin = board._data.get("source", {}).get("file")
@@ -3225,7 +3239,7 @@ def net_dossier(board, report, net_name: str) -> str:
     measured = current_module.ampacity(board, net_name,
                                        _copper_oz_by_layer(board))
     if measured.by_width:
-        lines.append(f"routed copper — width, length, and IPC-2221 ampacity "
+        lines.append(f"routed copper — width, length, and IPC-2152 ampacity "
                      f"at a {measured.rise_c:.0f} C rise")
         for (layer, width), (length, amps) in sorted(
                 measured.by_width.items(), key=lambda kv: -kv[1][0]):

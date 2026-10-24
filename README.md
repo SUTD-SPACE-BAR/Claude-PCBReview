@@ -72,7 +72,7 @@ about a minute.
 ---
 
 **Claude:** 17 of the 18 layout checks and all 8 schematic checks ran; the
-18th needs to know what your power paths carry. They found **97 major
+18th needs to know what your power paths carry. They found **96 major
 findings**, but most of them share a few causes. Here they are by cause, most
 important first.
 
@@ -160,13 +160,15 @@ above:
 **Claude:** Recorded as a power path: 2 A into /VIN at U5, 1 A out at each
 of J21 and J22. I re-ran the review with it. At that current:
 
-- **The copper heats itself by +20.5 °C**, against the +10 °C allowed by
-  default. That is with the board sealed in an enclosure; in still air it is
-  +14.1 °C, and with a fan +10.5 °C. The hottest stretch is on the first inner
-  layer, where this stackup's copper is less than half as thick as on the
-  outer layers.
-- **Four 0.3 mm vias each carry the full 2 A**, above their 1.8 A rating for
-  a 10 °C rise.
+- **The copper heats itself by +18.0 °C in still air**, against the +10 °C
+  allowed by default. Still air is where IPC-2152 defines a conductor's rise;
+  sealed in an enclosure it is +22.2 °C, and with a fan +11.9 °C. The hottest
+  stretch is on the first inner layer, where this stackup's copper is less
+  than half as thick as on the outer layers.
+- **Four 0.3 mm vias each carry the full 2 A**, above their 1.71 A IPC-2152
+  rating for a 10 °C rise.
+- **The board itself stays well within its limits**: 47 °C at the hottest,
+  even sealed in an enclosure.
 - **The drop from U5 to the connectors is 304 mV**, and the copper turns
   560 mW into heat.
 
@@ -174,7 +176,7 @@ Moving that inner-layer stretch to an outer layer, or widening it, would cut
 the heating; a second via beside each of those four would bring them under
 their rating.
 
-![Board temperature with 2 A on /VIN in a sealed enclosure: the hottest stretch, 45 °C, is on the first inner layer](docs/demo/power-temperature.png)
+![Board temperature with 2 A on /VIN in a sealed enclosure: the hottest stretch, 47 °C, is on the first inner layer](docs/demo/power-temperature.png)
 
 ![Current per millimetre of copper width along /VIN: the full 2 A to the split, then 1 A to each connector](docs/demo/power-current.png)
 
@@ -260,9 +262,9 @@ python -m pip install -r "$HOME\.claude\skills\pcbreview\requirements.txt"
 cd "$HOME\.claude\skills\pcbreview"; python -m pytest tests/ -q
 ```
 
-A correct install prints **`801 passed, 88 skipped`**, or `796 passed, 93
-skipped` if you have not installed the optional `pdfplumber`. Those 801 need
-no board of yours: they are closed-form physics (analytic limits, IPC-2221,
+A correct install prints **`809 passed, 88 skipped`**, or `804 passed, 93
+skipped` if you have not installed the optional `pdfplumber`. Those 809 need
+no board of yours: they are closed-form physics (analytic limits, IPC-2152,
 exact crosstalk identities, a Laplace solve against a rectangle) plus the
 tool's own refusals. The skips are opt-in tests that run against a board *you*
 register, plus a handful that want `pdfplumber`. Each skip says why in its own
@@ -376,13 +378,15 @@ What it does instead is **compute the physics**:
 - **return paths**, by looking at the copper under the trace layer by layer,
   including what happens at every via;
 - **current capacity** by eroding the conductor to find its narrowest real
-  channel, and a Laplace solve for a plane's true two-terminal resistance;
+  channel, rated by IPC-2152's measured chart, and a Laplace solve for a
+  plane's true two-terminal resistance;
 - **junction temperatures** from datasheet numbers you supply, plus how far
   your board is from the JEDEC card those numbers assume;
 - **voltage drop, via current and board temperature** for the power paths you
   declare, from a DC current-flow solve through every layer and via at once
-  and a heat model of the whole board. Temperatures come back as a range over
-  three kinds of surroundings, never as a single number.
+  and a heat model of the whole board, calibrated to IPC-2152's measured
+  trace temperatures. Temperatures come back as a range over three kinds of
+  surroundings, never as a single number.
 
 Every conclusion is computed in code — and so is **what gets reported**. Which
 findings must appear in a review is a set of rules in `pcbreview/report/`, not
@@ -441,10 +445,17 @@ folder beside your board — every run's data, yours to read, commit or delete.
 
 ### How it is checked
 
-- **801 tests that need no board of yours**: closed-form physics, IPC-2221,
+- **809 tests that need no board of yours**: closed-form physics, IPC-2152,
   exact crosstalk identities, a Laplace solve against a rectangle, current
   flow and heat spreading against their exact answers, plus the tool's own
   refusals. Run them yourself; the count to expect is above.
+- **The heat model is calibrated to measured data.** On IPC-2152's own test
+  board (one trace, 1.78 mm, no planes, still air) its still-air temperatures
+  land within 14% below to 19% above IPC-2152 across 54 outer-trace cases, and
+  run hot — the safe side — on inner traces. Every current capacity is
+  IPC-2152's chart too. An earlier version read a third too cool, against the
+  older IPC-2221; the test that now pins it is in
+  [tests/test_boardheat.py](tests/test_boardheat.py).
 - **[tests/mutation_check.py](tests/mutation_check.py)** breaks the contracts on
   purpose and checks that the tests notice.
 - **[tests/validate_all_boards.py](tests/validate_all_boards.py)** re-measures

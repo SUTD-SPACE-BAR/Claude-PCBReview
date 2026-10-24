@@ -9,9 +9,11 @@ confident number whose error is the size of the number.
 
 So this module computes temperatures **only as a bracket over named
 environments** (`ENVIRONMENTS`), and every consumer reports the bracket. The
-user's declared environment, if there is one, picks the verdict; without one
-the verdict is taken at the *worst* case, under the standing ruling that a
-false positive is preferred to a silent pass.
+user's declared environment, if there is one, picks the verdict. Without one,
+a conductor's **own rise** is judged in still air — where IPC-2152 defines a
+rise, and the environment this model is calibrated to — and the **board's
+temperature** against absolute limits at the *worst* case, under the standing
+ruling that a false positive is preferred to a silent pass.
 
 What it is, and what it deliberately is not
 -------------------------------------------
@@ -51,9 +53,23 @@ Validation
 * a point source on a uniform sheet against ``P K0(r/l) / (2 pi k t)`` —
   within 0.1% at 5, 10 and 20 mm;
 * the lumped transient ``dT (1 - exp(-t/tau))`` at ``t = tau`` — 0.07%;
-* IPC-2221's own working point: a 1 mm, 1 oz trace at 2.39 A on a bare
-  76 mm laminate card in still air. IPC-2221 says +10 C and is known to be
-  conservative; this model says +8.7 C, and the test pins the band 6-10 C.
+
+and against measurement — **IPC-2152's baseline**, the one published set of
+trace temperatures from boards of known construction: a single trace on a
+1.78 mm board with no copper planes, in still air, its rise averaged along
+the trace as the test measures it from resistance. Across 1-3 oz, 10-400 mil
+and +10 to +45 C (54 outer and 36 inner cases), against Brooks's fits to
+IPC-2152's charts, this model in `still_air` lands within 0.86-1.19x of
+IPC-2152's rise on outer traces and 0.93-1.50x on inner ones; the test pins
+both. The spread is what a fixed surface coefficient can do: a real board's
+convection strengthens as it heats, so the model reads a little cool on a
+cool narrow trace and a little hot on a hot wide one.
+
+The first version was checked only against IPC-2221's working point and read
+**8.7 C where IPC-2152 measures 13.1 C** — about a third too cool across the
+whole chart, the unsafe direction. Its laminate spread heat at 0.8 W/mK
+against IPC-2152's measured 0.49, and its still air was 12 W/m^2K against the
+8.1 that pairs with that conductivity. Both are fixed; see the constants.
 
 What those cannot establish, and nothing here can: that a real board's
 surroundings match any one environment. Hence the bracket.
@@ -70,25 +86,46 @@ import scipy.sparse.linalg as spla
 import shapely
 
 #: Linear surface coefficients per face, W/m^2K, convection and radiation
-#: together. Textbook ranges, and declared as judgement (§9): natural
-#: convection from a small board is ~4-8, grey-body radiation near room
-#: temperature ~5-6 at emissivity 0.9, so ~12 in open still air. A closed bay
-#: stops most convection and its walls warm up, which is why `enclosed` is
-#: well below that. `forced_air` is ~1-2 m/s across the board.
+#: together.
+#:
+#: **`still_air` is fitted to IPC-2152**, not taken from a textbook: 8.1 is
+#: the value at which this model, with `K_LAMINATE_XY_W_MK`, reproduces
+#: IPC-2152's still-air baseline on average over 54 outer-trace cases (see the
+#: module docstring). It is a pair with that conductivity — a model that
+#: spread heat faster would need less, one that spread it slower more; with
+#: 0.3 W/mK isotropic laminate the same fit gives ~12, which is where Brooks's
+#: own 3D model of the IPC test landed (10-14). IPC-2152 describes its still
+#: air as valid even for an assembly inside a sealed enclosure.
+#:
+#: `enclosed` is the stated worse case — a closed bay that stops most
+#: convection while its walls warm — and reads 1.09-1.63x IPC-2152's rise on
+#: the same cases. `forced_air` is ~1-2 m/s across the board, a textbook value
+#: with nothing measured behind it.
 ENVIRONMENTS = {
     "enclosed": 5.0,
-    "still_air": 12.0,
+    "still_air": 8.1,
     "forced_air": 30.0,
 }
 
-#: The environment a verdict is taken at when nobody has said. The worst one:
-#: a false positive is preferred to a silent pass.
+#: The environment a conductor's **own rise** is judged in when nobody has
+#: said: still air, because that is where IPC-2152 defines a rise and where
+#: the allowance (+10 C by default) comes from.
+RISE_VERDICT_ENVIRONMENT = "still_air"
+
+#: The environment the **board's temperature** is judged in when nobody has
+#: said. The worst one: an absolute limit is a laminate or connector rating,
+#: and a false positive is preferred to a silent pass.
 DEFAULT_VERDICT_ENVIRONMENT = "enclosed"
 
 K_COPPER_W_MK = 385.0
-#: FR-4-class laminate. In-plane is roughly twice through-plane because of the
-#: glass weave; datasheets put z at 0.25-0.40 and xy at 0.6-1.0.
-K_LAMINATE_XY_W_MK = 0.8
+#: FR-4-class laminate. In-plane is **IPC-2152's measured value** for the FR-4
+#: test vehicles behind its charts (0.0124 W/in-C; 0.0138 for its polyimide
+#: baseline), not a datasheet figure: datasheets quote 0.6-1.0 in-plane for
+#: glass-reinforced laminate, and taking 0.8 here made every trace about a
+#: third cooler than IPC-2152 measures. Through-plane stays the datasheet
+#: 0.25-0.40; a single trace's rise is insensitive to it (2% between 0.3 and
+#: 0.49).
+K_LAMINATE_XY_W_MK = 0.49
 K_LAMINATE_Z_W_MK = 0.3
 #: Volumetric heat capacities, rho * c_p.
 C_COPPER_J_M3K = 8960 * 385

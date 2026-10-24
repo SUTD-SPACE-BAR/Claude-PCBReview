@@ -46,7 +46,22 @@ COPPER_THICKNESS_PER_OZ_MM = 0.0348
 SPEED_OF_LIGHT_MM_PER_S = 299_792_458_000.0
 VACUUM_PERMEABILITY = 4e-7 * math.pi
 
+# IPC-2152 conductor temperature rise, as Brooks fits its still-air external
+# charts ("Trace Currents and Temperatures Revisited", Eq. 3-2, the same
+# equation for the 2 oz and the 3 oz data): dT = C * I^2 * W^-a * t^-b, with
+# W and t in mils. `current_capacity_a` inverts it.
+IPC2152_C = 215.3
+IPC2152_WIDTH_EXPONENT = 1.15
+IPC2152_THICKNESS_EXPONENT = 1.0
+MM_PER_MIL = 0.0254
+
+# IPC-2152's charts are for boards larger than 3 x 3 in; on a smaller board it
+# recommends its conservative chart instead. Read as board area.
+IPC2152_MIN_BOARD_AREA_MM2 = (3 * 25.4) ** 2
+
 # IPC-2221 conductor current capacity: I = k * dT^0.44 * A^0.725, A in mil^2.
+# The historical chart, kept for comparison and for IPC-2152's conservative
+# chart, which is IPC-2221's internal curve (`ipc2221_current_a`).
 IPC2221_K_EXTERNAL = 0.048
 IPC2221_K_INTERNAL = 0.024
 MM2_TO_MIL2 = 1550.0031
@@ -307,33 +322,95 @@ def voltage_drop_v(current_a: float, length_mm: float, width_mm: float,
         length_mm, width_mm, thickness_mm, temperature_c)
 
 
+def ipc2152_rise_c(current_a: float, width_mm: float,
+                   thickness_mm: float) -> float:
+    """IPC-2152 still-air temperature rise of a conductor, in C.
+
+    Brooks's fit to IPC-2152's external charts, `dT = 215.3 I^2 W^-1.15
+    t^-1.0` with W and t in mils — one equation for both the 2 oz and the
+    3 oz data, and the one his independent 3D thermal model reproduces.
+    """
+    if current_a < 0 or min(width_mm, thickness_mm) <= 0:
+        raise PhysicsError("rise inputs must be positive")
+    width_mil = width_mm / MM_PER_MIL
+    thickness_mil = thickness_mm / MM_PER_MIL
+    return (IPC2152_C * current_a ** 2 * width_mil ** -IPC2152_WIDTH_EXPONENT
+            * thickness_mil ** -IPC2152_THICKNESS_EXPONENT)
+
+
 def current_capacity_a(width_mm: float, thickness_mm: float,
                        temperature_rise_c: float = 10.0,
                        internal: bool = False) -> float:
-    """IPC-2221 current capacity: I = k * dT^0.44 * A^0.725.
+    """IPC-2152 current capacity: the current that raises a conductor by
+    `temperature_rise_c` in still air. Every capacity in this package —
+    tracks, necks, via barrels — is this function.
 
-    IPC-2221 deliberately, not IPC-2152. IPC-2152 is nomograph-based, its
-    correction factors live behind a paywalled standard, and most online
-    "IPC-2152 calculators" in fact implement this IPC-2221 formula while
-    labelling it 2152. IPC-2221 is conservative — it under-predicts capacity
-    relative to 2152 — which is the right direction to err.
+    **Why IPC-2152 and not IPC-2221.** IPC-2152 (2009) is the measured
+    successor to IPC-2221's chart: traces in boards of known construction,
+    with no copper planes, in still air and vacuum. IPC-2221's chart is
+    1950s data whose test conditions are not recorded. They disagree, and
+    not in one direction:
+
+    * **outer conductors** — IPC-2152 allows ~25% less current than IPC-2221
+      for a wide trace and somewhat more for a narrow one (0.83 A against
+      0.74 A at 0.2 mm, 1 oz, +10 C; 2.08 A against 2.38 A at 1 mm). IPC-2152
+      dropped IPC-2221's external chart because it was only safe on boards
+      over 3 x 3 in that also have planes. An earlier version of this
+      docstring said IPC-2221 was the conservative of the two; for a bare
+      outer trace that was wrong;
+    * **inner conductors** — IPC-2221 halves the external capacity. IPC-2152
+      measured inner traces running as cool as outer ones or cooler, because
+      laminate conducts heat better than still air; IPC-2221's internal curve
+      turned out to describe a conductor in free air.
+
+    **One chart for both.** IPC-2152 recommends its universal chart for inner
+    and outer conductors alike, so `internal` does not change the answer. Its
+    own data has inner traces cooler, so this errs safe for them.
+
+    **What is not applied**, all of it said rather than silently assumed:
+    IPC-2152's plane modifier, which only adds capacity (a plane under a
+    trace can halve its rise); its board-thickness modifier, which makes a
+    1.6 mm board a few percent hotter than its 1.78 mm baseline; and its
+    material modifier, ~2% for FR-4 against polyimide. On a board smaller
+    than 3 x 3 in IPC-2152 recommends its conservative chart instead
+    (`ipc2221_current_a(..., internal=True)`); the audit says so as an
+    assumption when the board is that small (`IPC2152_MIN_BOARD_AREA_MM2`).
+    """
+    if min(width_mm, thickness_mm) <= 0 or temperature_rise_c <= 0:
+        raise PhysicsError("current capacity inputs must be positive")
+    width_mil = width_mm / MM_PER_MIL
+    thickness_mil = thickness_mm / MM_PER_MIL
+    return math.sqrt(temperature_rise_c * width_mil ** IPC2152_WIDTH_EXPONENT
+                     * thickness_mil ** IPC2152_THICKNESS_EXPONENT / IPC2152_C)
+
+
+def required_width_mm(current_a: float, thickness_mm: float,
+                      temperature_rise_c: float = 10.0,
+                      internal: bool = False) -> float:
+    """Invert IPC-2152 for the width a given current needs."""
+    if current_a <= 0 or thickness_mm <= 0 or temperature_rise_c <= 0:
+        raise PhysicsError("width inputs must be positive")
+    thickness_mil = thickness_mm / MM_PER_MIL
+    width_mil = (current_a ** 2 * IPC2152_C / temperature_rise_c
+                 / thickness_mil ** IPC2152_THICKNESS_EXPONENT
+                 ) ** (1 / IPC2152_WIDTH_EXPONENT)
+    return width_mil * MM_PER_MIL
+
+
+def ipc2221_current_a(width_mm: float, thickness_mm: float,
+                      temperature_rise_c: float = 10.0,
+                      internal: bool = False) -> float:
+    """IPC-2221's historical chart: I = k * dT^0.44 * A^0.725, A in mil^2.
+
+    Kept for comparison, and because its internal curve is IPC-2152's
+    conservative chart — the one IPC-2152 recommends on boards under 3 x 3 in
+    and in any doubt, since it approximates a conductor in free air.
     """
     if min(width_mm, thickness_mm) <= 0 or temperature_rise_c <= 0:
         raise PhysicsError("current capacity inputs must be positive")
     area_mil2 = width_mm * thickness_mm * MM2_TO_MIL2
     k = IPC2221_K_INTERNAL if internal else IPC2221_K_EXTERNAL
     return k * (temperature_rise_c ** 0.44) * (area_mil2 ** 0.725)
-
-
-def required_width_mm(current_a: float, thickness_mm: float,
-                      temperature_rise_c: float = 10.0,
-                      internal: bool = False) -> float:
-    """Invert IPC-2221 for the width a given current needs."""
-    if current_a <= 0 or thickness_mm <= 0 or temperature_rise_c <= 0:
-        raise PhysicsError("width inputs must be positive")
-    k = IPC2221_K_INTERNAL if internal else IPC2221_K_EXTERNAL
-    area_mil2 = (current_a / (k * temperature_rise_c ** 0.44)) ** (1 / 0.725)
-    return area_mil2 / MM2_TO_MIL2 / thickness_mm
 
 
 # -- timing ---------------------------------------------------------------

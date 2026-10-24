@@ -12,7 +12,7 @@ said **what a path carries**, in `<board>.powerpaths.yaml`, and the questions
 become absolute.
 
 * **Drop and loss** — `dcflow`, all layers and vias together.
-* **Via current** — each barrel's share, against IPC-2221 at the path's
+* **Via current** — each barrel's share, against IPC-2152 at the path's
   allowed rise. On a real board the shares are wildly unequal, and the via
   nearest the load runs hot while its neighbours idle.
 * **Conductor heating** — the temperature rise the path's own copper reaches
@@ -30,10 +30,13 @@ become absolute.
 Temperatures are a bracket, never a number
 -------------------------------------------
 Every temperature is solved in each of `boardheat.ENVIRONMENTS` and reported
-as a bracket. The verdict is taken in the environment the manifest declares,
-or — when it declares none — in the **worst** one, and the finding asks the
-question that would settle it. `heatsink.py` records why: the surroundings
-move the answer more than anything on the board does.
+as a bracket. The verdict is taken in the environment the manifest declares.
+When it declares none, a conductor's **own rise** is judged in still air —
+where IPC-2152 defines a rise and the allowance comes from, and the
+environment `boardheat` is calibrated to — and the **board's temperature**
+against absolute limits in the **worst** one; each finding asks the question
+that would settle it. `heatsink.py` records why: the surroundings move the
+answer more than anything on the board does.
 
 What is not modelled, said on every temperature finding
 --------------------------------------------------------
@@ -62,7 +65,7 @@ from pcbreview.findings import Finding, _severity
 
 CHECK = "power_path"
 
-#: Barrel current over its IPC-2221 rating at the path's allowed rise. IPC
+#: Barrel current over its IPC-2152 rating at the path's allowed rise. IPC
 #: treats a barrel as a long conductor; a real one is 1.6 mm between two heat
 #: sinks and runs cooler, which is why major starts at 1.5x and not at 1x.
 VIA_RATIO_MINOR, VIA_RATIO_MAJOR, VIA_RATIO_CRITICAL = 1.0, 1.5, 2.5
@@ -147,6 +150,8 @@ class AmpacityResult:
     paths: list[PathOutcome]
     scenarios: list[ScenarioOutcome]
     environments: dict[str, float]
+    #: where the board's temperature is judged: the declared environment,
+    #: else the worst (`boardheat.DEFAULT_VERDICT_ENVIRONMENT`)
     verdict_env: str
     verdict_declared: bool
     ambient_c: float
@@ -159,6 +164,9 @@ class AmpacityResult:
     maps: dict[str, object] = field(default_factory=dict)
     #: copper thickness per layer, for the adiabatic pulse bound
     thickness_mm: dict[str, float] = field(default_factory=dict)
+    #: where a conductor's own rise is judged: the declared environment, else
+    #: still air, where IPC-2152 defines a rise (`RISE_VERDICT_ENVIRONMENT`)
+    rise_env: str = boardheat.RISE_VERDICT_ENVIRONMENT
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +316,7 @@ def evaluate(board, manifest: powerpaths.PowerPathManifest, thermal=None, *,
     if manifest.environment and manifest.environment not in environments:
         environments[manifest.environment] = manifest.surface_w_m2k
     verdict_env = manifest.environment or boardheat.DEFAULT_VERDICT_ENVIRONMENT
+    rise_env = manifest.environment or boardheat.RISE_VERDICT_ENVIRONMENT
     say("building the board heat model")
     base = boardheat.sheets_for(board, environments[verdict_env],
                                 cell_mm=thermal_cell_mm, mounts=manifest.mounts,
@@ -422,7 +431,8 @@ def evaluate(board, manifest: powerpaths.PowerPathManifest, thermal=None, *,
         scenarios=scenario_results, environments=environments,
         verdict_env=verdict_env, verdict_declared=manifest.environment is not None,
         ambient_c=ambient, ambient_source=ambient_source, neighbour=neighbour,
-        maps=maps, thickness_mm=dcflow.stack_geometry(board)[0])
+        maps=maps, thickness_mm=dcflow.stack_geometry(board)[0],
+        rise_env=rise_env)
     result.assumptions = _assumptions(result, manifest, plating, coupled, parts)
     result.findings = _findings(result, manifest, plating, power_nets)
     result.seconds = time.time() - started
@@ -443,12 +453,16 @@ def _assumptions(result, manifest, plating, coupled, parts) -> list[str]:
          f"rating directly",
          "temperatures are solved in every environment "
          + ", ".join(f"{k} ({v:g} W/m^2K per face)" for k, v in result.environments.items())
-         + f"; the verdict is taken in '{result.verdict_env}'"
-         + ("" if result.verdict_declared else
-            " because none was declared, and it is the worst of them"),
-         "laminate conductivity 0.8 W/mK in-plane and 0.3 W/mK through; "
-         "packages are not modelled as solids — a part's heat enters at its "
-         "pads; no heat leaves through wires or connectors",
+         + (f"; every verdict is taken in the declared '{result.verdict_env}'"
+            if result.verdict_declared else
+            f"; none was declared, so a conductor's own rise is judged in "
+            f"'{result.rise_env}', where IPC-2152 defines a rise, and the "
+            f"board's temperature in '{result.verdict_env}', the worst of them"),
+         f"laminate conductivity {boardheat.K_LAMINATE_XY_W_MK:g} W/mK in-plane "
+         f"(IPC-2152's measured FR-4) and {boardheat.K_LAMINATE_Z_W_MK:g} W/mK "
+         f"through; still air fitted to IPC-2152's baseline; packages are not "
+         f"modelled as solids — a part's heat enters at its pads; no heat "
+         f"leaves through wires or connectors",
          ("copper resistance re-solved at the temperature the first pass "
           "found (--coupled)" if coupled else
           "copper resistivity at 20 C; a hot path dissipates ~4% more per "
@@ -487,8 +501,12 @@ def _hotspot_geometry(solution, count=3):
 def _findings(result: AmpacityResult, manifest, plating, power_nets) -> list[Finding]:
     out: list[Finding] = []
     venv = result.verdict_env
+    renv = result.rise_env
     env_note = (f"in the declared environment '{venv}'" if result.verdict_declared
                 else f"in '{venv}', the worst environment, because none was declared")
+    rise_note = (f"in the declared environment '{renv}'" if result.verdict_declared
+                 else f"in '{renv}', where IPC-2152 defines a conductor's rise, "
+                      f"because none was declared")
     env_question = (None if result.verdict_declared else
                     "the board's surroundings — a sealed bay, open still air, "
                     "or moving air; the temperature verdict changes with it")
@@ -592,8 +610,8 @@ def _findings(result: AmpacityResult, manifest, plating, power_nets) -> list[Fin
                 basis=("each barrel's current from the same solve; "
                        + ("an adiabatic bound, because the pulse is shorter than "
                           "a barrel takes to shed heat" if short else
-                          "IPC-2221 with the barrel's circumference as width and "
-                          "its plating as thickness, external constant")),
+                          "IPC-2152's still-air chart with the barrel's "
+                          "circumference as width and its plating as thickness")),
                 assumption=f"via plating {plating:g} um; allowed rise "
                            f"{p.rise_c:g} C ({'stated' if p.rise_stated else 'default'})",
                 intent_needed=(None if p.rise_stated else
@@ -602,7 +620,7 @@ def _findings(result: AmpacityResult, manifest, plating, power_nets) -> list[Fin
     # conductor heating, per path, worst scenario
     worst_rise: dict[str, tuple] = {}
     for sc in result.scenarios:
-        env_out = sc.by_env.get(venv)
+        env_out = sc.by_env.get(renv)
         if env_out is None:
             continue
         for name, rise in env_out.path_rise.items():
@@ -639,20 +657,21 @@ def _findings(result: AmpacityResult, manifest, plating, power_nets) -> list[Fin
             check=CHECK, severity=severity, score=score, nets=[p.net],
             title=(f"{p.name}: its own current heats its copper +{rise:.1f} C "
                    f"{kind}, against +{p.rise_c:g} C allowed"),
-            detail=[f"scenario '{sc.scenario.name}', {env_note}",
+            detail=[f"scenario '{sc.scenario.name}', {rise_note}",
                     "bracket: " + _bracket(sc.by_env, pick),
                     f"with everything else in the scenario heating the board "
                     f"too, this copper reaches +"
-                    f"{sc.by_env[venv].path_total.get(p.name, rise):.1f} C — "
-                    f"judged in the board temperature finding, not here"]
+                    f"{sc.by_env[venv].path_total.get(p.name, rise):.1f} C in "
+                    f"'{venv}' — judged in the board temperature finding, not "
+                    f"here"]
                    + bound,
             measurement={"rise_c": round(rise, 2), "allowed_c": p.rise_c,
-                         "environment": venv},
+                         "environment": renv},
             basis="this path's copper I^2R, deposited where it was dissipated, "
                   "through a one-sheet-per-layer conduction model of the board "
                   "with convection from both faces; the hottest cell its copper "
                   "occupies",
-            assumption=f"surface {result.environments[venv]:g} W/m^2K per face; "
+            assumption=f"surface {result.environments[renv]:g} W/m^2K per face; "
                        f"allowed rise {'stated' if p.rise_stated else 'default'}",
             intent_needed=env_question or (None if p.rise_stated else
                                            "the rise this path may run at")))
@@ -824,7 +843,8 @@ def report(result: AmpacityResult) -> str:
                      + (f"  [{p.pulse_s:g} s pulse]" if p.is_pulse else ""))
     lines.append("")
     lines.append(f"TEMPERATURE RISE ABOVE {result.ambient_c:g} C — "
-                 + " / ".join(envs) + f"; verdict in '{result.verdict_env}'")
+                 + " / ".join(envs) + f"; own rise judged in '{result.rise_env}', "
+                 f"the board in '{result.verdict_env}'")
     for sc in result.scenarios:
         lines.append(f"  {sc.scenario.name}")
         lines.append("    copper only   " + " / ".join(
@@ -832,8 +852,8 @@ def report(result: AmpacityResult) -> str:
         lines.append("    with parts    " + " / ".join(
             f"+{sc.by_env[e].total_max[0]:.1f}" for e in envs))
         own = {**sc.by_env[envs[0]].path_rise, **sc.by_env[envs[0]].pulse_conductor}
-        for n in sorted(own, key=lambda n: -sc.by_env[result.verdict_env].path_rise.get(
-                n, sc.by_env[result.verdict_env].pulse_conductor.get(n, 0.0))):
+        for n in sorted(own, key=lambda n: -sc.by_env[result.rise_env].path_rise.get(
+                n, sc.by_env[result.rise_env].pulse_conductor.get(n, 0.0))):
             lines.append(f"    {n[:24]:24}" + " / ".join(
                 f"+{sc.by_env[e].path_rise.get(n, sc.by_env[e].pulse_conductor.get(n, 0)):.1f}"
                 for e in envs) + "   own current")
@@ -971,6 +991,7 @@ def main(argv: list[str]) -> int:
             "assumptions": result.assumptions,
             "ambient_c": result.ambient_c,
             "verdict_environment": result.verdict_env,
+            "rise_environment": result.rise_env,
         }, indent=1, default=str), encoding="utf-8")
     return 0
 

@@ -46,7 +46,7 @@ What comes out
   resistance when there is one sink;
 * the I^2R loss, total and **per cell per layer** — the heat source map that
   `boardheat` turns into a temperature;
-* the current in every barrel, against its IPC-2221 rating;
+* the current in every barrel, against its IPC-2152 rating;
 * the sheet current density, and the worst **dissipation hotspots** averaged
   over a 1 mm window, so a single corner cell cannot dominate.
 
@@ -675,7 +675,7 @@ def solve_path(board, net: str, source_pads: list[str],
 
 def barrel_rating_a(drill_mm: float, rise_c: float,
                     plating_um: float = current.VIA_PLATING_UM) -> float:
-    """IPC-2221 rating of one barrel at `rise_c` — `current.via_capacity_a`."""
+    """IPC-2152 rating of one barrel at `rise_c` — `current.via_capacity_a`."""
     return current.via_capacity_a(drill_mm, plating_um, rise_c)
 
 

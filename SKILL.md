@@ -1137,7 +1137,8 @@ report lists `power_path` under *checks that could not run* — the same
 treatment `thermal` gets, for the same reason: **a current is intent**.
 
 **`pcbreview.run` also draws the maps** — a temperature map for each scenario,
-in the verdict environment, and a current-density map for each path — and
+in the environment the board's temperature is judged in (`enclosed` unless one
+is declared), and a current-density map for each path — and
 lists them with the review's other pictures. **Show both every time you report
 a power path.** The temperature map is where the heat is; the current map is
 why, with the busiest vias marked. Say which environment the temperature map
@@ -1209,20 +1210,28 @@ know — say which of the two is the limit.
 ### Temperatures are a bracket. Report them as one.
 
 Every temperature is solved in three environments — `enclosed` (5 W/m²K per
-face), `still_air` (12), `forced_air` (30) — and printed as a bracket. The
-verdict is taken in the environment the manifest declares, or **in
-`enclosed` when none is declared**, and the finding asks which it is.
+face), `still_air` (8.1), `forced_air` (30) — and printed as a bracket.
+**`still_air` is fitted to IPC-2152's measured baseline**, so it is the IPC
+answer; `enclosed` is a stated worse case and `forced_air` a textbook one.
+With an environment declared in the manifest, every verdict is taken there.
+Without one, the two temperatures below are judged in different places, and
+each finding asks which environment it really is:
+
+* a conductor's **own rise** in `still_air` — where IPC-2152 defines a rise
+  and where the default +10 °C allowance comes from;
+* the **board's temperature** against its absolute limits in `enclosed`, the
+  worst case.
 
 **Never quote one of the three as "the board temperature".** Say the bracket
 and which end the verdict used: *"+8 °C in a sealed bay, +5 °C in open still
-air, +3 °C with airflow — judged at the sealed-bay end because you have not
-said where it sits."* `heatsink.py` explains why: the surroundings move this
-more than anything on the board does.
+air, +3 °C with airflow — the board judged at the sealed-bay end because you
+have not said where it sits."* `heatsink.py` explains why: the surroundings
+move this more than anything on the board does.
 
 Two temperatures per path, and they answer different questions:
 
 * **its own current** heating its own copper — the IPC sense of "rise", and
-  what `rise_c` is judged against;
+  what `rise_c` is judged against, in still air;
 * **the whole board** — copper loss plus part dissipation, absolute, against
   laminate and connector limits (major at 90 °C, critical at 105 °C).
 
@@ -1252,10 +1261,17 @@ temperature with a probe or an IR camera, and believe those over this.
   always downward, because a coarse grid can only overstate resistance.
 * Via currents: exact sharing in symmetric cases; on a real board each share
   carries the grid's error.
-* Temperatures: the solver is exact against closed form; **the environment
-  is not**, which is the whole point of the bracket. IPC-2221's own working
-  point (1 mm, 1 oz, 2.39 A, +10 °C) comes out at +8.7 °C in still air —
-  below IPC, which is known to be conservative.
+* Temperatures: the solver is exact against closed form, and `still_air`
+  reproduces IPC-2152's measured baseline — a single trace on a 1.78 mm board
+  with no planes — within 0.86-1.19x on 54 outer-trace cases and 0.93-1.50x
+  (hot, the safe side) on 36 inner ones. **The environment is not known**,
+  which is the whole point of the bracket. IPC-2221's working point (1 mm,
+  1 oz, 2.39 A, +10 °C) now comes out near IPC-2152's +13.1 °C; it used to
+  read +8.7 °C, a third too cool.
+* Current capacity, everywhere — tracks, necks, via barrels — is IPC-2152's
+  still-air chart, one curve for inner and outer layers, with no credit for
+  planes. On a board under 3 x 3 in the run says IPC-2152 would use its
+  conservative chart instead, and gives that number.
 
 `REFERENCE.md`, *Power paths*, has the full validation table and where every
 threshold came from.
