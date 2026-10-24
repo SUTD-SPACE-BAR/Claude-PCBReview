@@ -28,11 +28,13 @@ What it prints, in order
 2. the deterministic report — rules 0 through 5 and the render floor
 3. the questions queue — every `intent_needed` the run raised, deduplicated,
    with its evidence attached. **This is the agent's worklist.**
-4. what is still unread — datasheets on disk that no thermal manifest covers
-5. the solve-cache summary
+4. the pictures — drawn by default, listed in the order to show them
+   (`pictures.py` says what is drawn and why)
+5. what is still unread — datasheets on disk that no thermal manifest covers
+6. the solve-cache summary
 
-`--quiet` drops 1, 4 and 5; `--questions-only` prints 3 alone, which is what a
-second visit to a board wants.
+`--quiet` drops 1, 4, 5 and 6; `--questions-only` prints 3 alone, which is
+what a second visit to a board wants.
 """
 
 from __future__ import annotations
@@ -60,7 +62,13 @@ replaces the three-pass flow: there is no triage left to do by hand.
                     already reviewed in this session
   --quiet           the report and nothing around it
 
-  --refill          refill zones with kicad-cli on a temp copy first. OFF by
+  --pictures DIR    draw the review's pictures into DIR — the `review/` folder,
+                    say — instead of the OS cache. Pictures are drawn by
+                    default: the board, one per group, the worst findings, and
+                    the power-path maps when paths are declared
+  --no-pictures     draw none. The review is otherwise identical
+
+  --refill         refill zones with kicad-cli on a temp copy first. OFF by
                     default: it moves the geometry ~0.21% and re-keys the
                     extraction cache, so a comparison with an earlier run shows
                     movement nobody caused. Use it when the fills are stale
@@ -206,12 +214,13 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(USAGE)
         return 0 if ("--help" in argv or "-h" in argv) else 2
 
-    options: dict[str, str | None] = {"markdown": None, "json": None}
+    options: dict[str, str | None] = {"markdown": None, "json": None,
+                                      "pictures": None}
     positional: list[str] = []
     index = 1
     while index < len(argv):
         argument = argv[index]
-        if argument in ("--markdown", "--json"):
+        if argument in ("--markdown", "--json", "--pictures"):
             if index + 1 >= len(argv):
                 sys.stderr.write(f"{argument} needs a path\n")
                 return 2
@@ -230,6 +239,11 @@ def main(argv: list[str]) -> int:
     questions_only = "--questions-only" in argv
     verify_cache = "--verify-cache" in argv
     use_cache = "--no-solve-cache" not in argv
+    # On unless asked not to, or unless the output has no room for them: a
+    # questions-only visit or JSON on stdout is read by a program, and
+    # `--quiet` promises the report and nothing around it.
+    draw_pictures = not ("--no-pictures" in argv or quiet or questions_only
+                         or options["json"] == "-")
 
     from pcbreview import pipeline, solvestore
     from pcbreview.report import render
@@ -267,9 +281,11 @@ def main(argv: list[str]) -> int:
         # carries — come from a `dossier` index, and that needs the loaded
         # board. It has to be kept *inside* `review()`, because a refilled
         # board lives in a temp directory that call deletes on the way out.
+        # The pictures need it too: every one is drawn from the measured
+        # geometry, so the highlight is the copper the finding was about.
         result = pipeline.review(
             project, refill="--refill" in argv,
-            keep_board="--facts" in argv,
+            keep_board="--facts" in argv or draw_pictures,
             solve_store=store if store is not None else False)
     except pipeline.PipelineError as exc:
         # Gate 1 and its neighbours refusing is a *correct* outcome and the
@@ -300,6 +316,10 @@ def main(argv: list[str]) -> int:
             from pcbreview import problemsview
             print(problemsview.render(problems_module.build(
                 result.layout, result.schematic, result.report)))
+        if draw_pictures:
+            from pcbreview import pictures as pictures_module
+            print(pictures_module.text(
+                pictures_module.draw(result, options["pictures"])))
         if not quiet:
             print(_unread_datasheets(result.project))
 

@@ -107,6 +107,22 @@ def test_the_nets_are_carried_so_the_renderer_can_draw_them():
     assert finding.location == (10.0, 20.0)
 
 
+def test_every_violation_is_marked_in_the_evidence_geometry():
+    """A rule type touches dozens of nets across a board, so a picture of its
+    nets is a picture of the board. The marks at each violation are what the
+    review's picture draws instead."""
+    finding, = _run([_violation("clearance", "error", "Clearance violation",
+                                [("Pad 1 [/A] of U1", (10.0, 20.0))]),
+                     _violation("clearance", "error", "Clearance violation",
+                                [("Pad 2 [/B] of U2", (40.0, 5.0))])])
+    assert finding.geometry is not None
+    assert len(finding.geometry.geoms) == 2
+    for x, y in ((10.0, 20.0), (40.0, 5.0)):
+        assert any(g.centroid.distance(type(g.centroid)(x, y)) < 1e-6
+                   for g in finding.geometry.geoms)
+    assert finding.geometry_label
+
+
 def test_a_drc_that_could_not_run_says_so_rather_than_passing():
     """A zero from a check that never ran is the failure mode this whole
     project's coverage lines exist to prevent."""

@@ -143,8 +143,15 @@ above:
 3. What load current flows through each of the four shunts?
 4. Were the inner layers meant to carry signals, or meant to be solid ground?
 
-I can also save the full report and these pictures in a `review/` folder
-beside the board.
+**What I can do next:**
+
+- Tell me what /VIN and the other supplies carry, and I'll map the voltage
+  drop and where the board gets hot.
+- Send datasheets for the parts you're worried about, and I'll work out their
+  junction temperatures.
+- Add the BOM, and I'll check it against the schematic.
+- Show you everything about U13's sense lines, with pictures.
+- Save this report and the pictures in a `review/` folder beside the board.
 
 ---
 
@@ -253,8 +260,8 @@ python -m pip install -r "$HOME\.claude\skills\pcbreview\requirements.txt"
 cd "$HOME\.claude\skills\pcbreview"; python -m pytest tests/ -q
 ```
 
-A correct install prints **`782 passed, 88 skipped`**, or `777 passed, 93
-skipped` if you have not installed the optional `pdfplumber`. Those 782 need
+A correct install prints **`801 passed, 88 skipped`**, or `796 passed, 93
+skipped` if you have not installed the optional `pdfplumber`. Those 801 need
 no board of yours: they are closed-form physics (analytic limits, IPC-2221,
 exact crosstalk identities, a Laplace solve against a rectangle) plus the
 tool's own refusals. The skips are opt-in tests that run against a board *you*
@@ -286,8 +293,24 @@ Ask Claude in your own words, and say where the board is:
 
 Claude asks which fab stackup you ordered, runs the review, and comes back
 with the findings grouped by cause, pictures of the copper they name, what it
-could not check, and the questions only you can answer. Answer them and it
-re-runs. For temperatures it asks for datasheets.
+could not check, the questions only you can answer, and a few things it could
+do next. Answer the questions and it re-runs. For temperatures it asks for
+datasheets.
+
+**Not sure what to ask?** Ask Claude what it can do. It offers a list like
+this one:
+
+- Review a board end to end: layout and schematic together, with a picture of
+  every problem
+- Check a fab stackup against the fab's own impedance figures, and against the
+  stackup saved in your KiCad file
+- Voltage drop, via current and thermal maps for the power paths you name
+- Junction temperatures from the datasheets you send
+- Everything about one net, with a picture
+- A picture of any net, part or area of the board
+- Board, schematic and BOM compared
+- What changed since the last review
+- Turn down a check that doesn't apply to your design
 
 ### What you hand over
 
@@ -316,6 +339,12 @@ what was assumed rather than measured. For anything that names a trace, a
 rendered picture of that trace on the board — which matters most for the nets
 KiCad auto-named, where "`Net-(C29-Pad2)` has a problem" is useless and a
 picture is not.
+
+**Every review comes with pictures, without asking:** the board, one for each
+group of findings that share a cause, the worst findings on their own, and
+temperature and current maps for any power path you have declared. They are
+kept in your system's cache folder, not beside your board; ask Claude to keep
+them in a `review/` folder if you want them.
 
 A full review is usually under a minute on a four-layer board, and a few
 minutes on a large dense one; the field solver is 85% of that. It is not hung.
@@ -412,7 +441,7 @@ folder beside your board — every run's data, yours to read, commit or delete.
 
 ### How it is checked
 
-- **782 tests that need no board of yours**: closed-form physics, IPC-2221,
+- **801 tests that need no board of yours**: closed-form physics, IPC-2221,
   exact crosstalk identities, a Laplace solve against a rectangle, current
   flow and heat spreading against their exact answers, plus the tool's own
   refusals. Run them yourself; the count to expect is above.

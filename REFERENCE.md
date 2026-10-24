@@ -67,6 +67,10 @@ datasheets.py  PDFs -> thermal figures by pattern, each with its page cite
 reader.py      the five audits over a reading Claude offers. No model
 parts.py     the parts table, and `<board>.thermal.yaml`
 stackups.py  the shipped fab stackup library, and applying one to a board
+render.py    one picture: KiCad's own plot, dimmed, with a finding's copper and
+             evidence drawn on top in board millimetres
+pictures.py  the pictures every review draws: the board, one per group, the
+             worst findings, the power-path maps. Selection is code, like report/
 run.py       the command an agent types: all of the above, once
 ```
 
@@ -86,7 +90,9 @@ reader would leave every analysis untouched.
 `pcbreview.run` is the entry point. Everything else is the drill-down layer.
 
 ```bash
-python3 -m pcbreview.run project/            # both audits, once, and the report
+python3 -m pcbreview.run project/            # both audits, once, the report and its pictures
+python3 -m pcbreview.run project/ --pictures review/img   # …pictures kept where you say
+python3 -m pcbreview.run project/ --no-pictures           # …and none drawn
 python3 -m pcbreview.stackups project/       # the fab stackup library
 python3 -m pcbreview.facts project/          # nets, shortlist, questions; --declare
 python3 -m pcbreview.parts project/          # datasheets read; --pages, --read, --write
@@ -946,6 +952,40 @@ pitch) and `--coupled` (the continuous paths re-solved hot, and the heat
 re-run) added 27 s between them. A whole-board ground path is the largest
 current solve, ~6 s at 750k cells. Inside `pcbreview.run` the check added
 ~70 s to a 21 s review of the same board.
+
+## Pictures (`pictures.py`, `render.py`)
+
+`pcbreview.run` draws a review's pictures by default and lists them after the
+questions. It used to be an instruction in `SKILL.md` to render the findings
+reported; an instruction is followed when it is remembered, so the drawing
+moved into the command the way the selection moved into `report/`.
+
+What is drawn, in reading order: the board's top copper; one picture per
+layout group of five or more, from its most severe member with something to
+draw; every `critical` then `major` outside those groups, up to `MAX_SEVERE`
+(12); and, when power paths are declared, a temperature map per scenario and a
+current map per path, taken from the `power_path` check's own result
+(`AuditReport.power_paths_result`) rather than a second solve.
+
+Three rules keep a picture readable, each from a picture that was not:
+
+| rule | why |
+|---|---|
+| at most `MAX_NETS` nets highlighted, one per `render.HIGHLIGHTS` colour | a broadside victim with 39 aggressors drew as a tangle; six nets showed two in white |
+| poured-plane nets are never highlighted; a finding about planes alone, with no geometry, is not drawn | a parity finding about four `GND` exposed pads drew as the whole ground pour |
+| a finding naming more nets than colours, with geometry, is drawn by the geometry alone | a DRC rule type touches dozens of nets; `drc` findings now carry a mark (`DRC_MARK_MM`) at every violation |
+
+A finding with no net left to draw and no geometry is listed as not drawn,
+with the `--around` command that draws it: a radius around a point would be an
+invented scale. Pictures go to the OS cache, one folder per board, emptied at
+the start of each run; nothing is written beside the board unless
+`--pictures DIR` says where. One picture failing is listed and never fails
+the review.
+
+**Cost.** `render.render(plot_cache=)` plots each layer set once per run
+instead of once per picture. On a 140 x 45 mm four-layer board the review took
+138 s and 168 s with its 27 pictures; the browser screenshot is most of a
+picture once its plot is cached.
 
 ## Physics (`physics.py`)
 

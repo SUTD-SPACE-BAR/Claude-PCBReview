@@ -136,6 +136,11 @@ class AuditReport:
     #: discarded so the proposer can emit it without reclassifying (§48.9).
     #: Not serialised — `net_classes` above is its summary.
     net_class_map: object = None
+    #: the `power_path` check's whole `ampacity.AmpacityResult`, kept so the
+    #: review's pictures can draw its temperature and current maps without
+    #: solving again. `None` when no power paths were declared. Not
+    #: serialised — its findings are already in `findings`.
+    power_paths_result: object = None
 
     def of_severity(self, *severities: str) -> list[Finding]:
         return [f for f in self.findings if f.severity in severities]

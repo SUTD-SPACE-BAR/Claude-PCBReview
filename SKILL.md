@@ -1,6 +1,6 @@
 ---
 name: pcbreview
-description: Deterministic design review of KiCad PCB layouts and schematics. Use whenever the user asks to review, audit, or check a PCB — a `.kicad_pcb` or `.kicad_sch` file, a board's return paths, impedance, crosstalk, current capacity, junction temperatures, decoupling placement, or board-versus-schematic parity. Also use when the user shares a KiCad board and asks "what's wrong with this", "is this routed properly", "will this overheat", or "review my layout".
+description: Deterministic design review of KiCad PCB layouts and schematics. Use whenever the user asks to review, audit, or check a PCB — a `.kicad_pcb` or `.kicad_sch` file, a board's return paths, impedance, crosstalk, current capacity, voltage drop, board temperature, junction temperatures, decoupling placement, or board-versus-schematic parity. Also use when the user shares a KiCad board and asks "what's wrong with this", "is this routed properly", "will this overheat", or "review my layout", or asks what can be checked on a PCB.
 ---
 
 # pcbreview
@@ -17,6 +17,7 @@ PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.stackups project/ use JLC04161
 
 # 2. THE REVIEW. One command, both entry points, and it selects what must be
 #    reported. Point it at the project FOLDER and it finds every input itself.
+#    It also DRAWS the pictures and lists them at the end — show every one.
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.run project/ > review.txt 2>&1
 
 # 3. read the datasheets YOURSELF, offer each value with its cite, then write
@@ -36,10 +37,14 @@ PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ --template
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ --validate
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ --check-grid --images out/
 
-# 5. re-run, then draw the handful you will explain
+# 5. re-run (the pictures are redrawn), then draw anything else you explain
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.run project/ > review-2.txt 2>&1
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.render board.kicad_pcb out/ NET --caption "what this shows"
 ```
+
+**Two things the user sees from every session, whatever else happens:**
+pictures of the work (§"Pictures"), and a short list of what else you can do
+for them (§"Offer what else you can do"). Neither waits to be asked for.
 
 **Step 2 is the review.** It runs the layout audit and the schematic audit,
 applies the user's severity policy, and prints the report — every `critical`
@@ -392,7 +397,9 @@ an 87 × 82 mm 4-layer board with 1033 tracks; well under a minute for a
 185 × 59 mm 4-layer with 1045 tracks. One pathological case exists — a
 37 × 23 mm *two-layer* board with 325 tracks took 125 s, because a 2-layer
 board has no plane between its two signal layers and every net couples to every
-other. **Do not background the first run.**
+other. **Do not background the first run.** The pictures add about half a
+minute: 27 of them took 30 s on a 140 x 45 mm four-layer board, most of it one
+browser screenshot each.
 
 **A second run is much cheaper — but only the solving is.** Every cross-section
 the solver computes is cached on disk, keyed by a hash of the geometry, the
@@ -497,14 +504,45 @@ check, which is the shape a fix list wants. Use it when the user asks *"what do
 I change first"*; the report itself is in rule order, which is right for *"is
 this the same review as yesterday"* and wrong for that question.
 
-### Triage FIRST, then render
+### Pictures — every run draws them, and you show them
 
-**This order is not negotiable and getting it backwards wastes seventeen
-minutes.** A dense board produces three hundred findings. Rendering all of them
-is minutes of work to produce pictures nobody will look at.
+**`pcbreview.run` draws the review's pictures itself**, after the report, and
+ends its output with a `PICTURES` block listing each file in the order to show
+it. What it draws, chosen by code like everything else in the report
+(`pictures.py`):
 
-The report's **render floor** already names the minimum: the largest group,
-plus every net a `critical` or a `major` names. It is a floor, not a ceiling.
+1. **the board** — top copper, whole, so every crop after it has a context;
+2. **one picture per group of five or more**, from the group's most severe
+   member that has copper to draw. Its note says how many findings it stands
+   for;
+3. **every `critical`, then every `major`** outside those groups, up to twelve.
+   The rest are counted, never dropped silently;
+4. **a temperature map per scenario and a current map per path**, whenever a
+   power-path manifest is declared.
+
+**Show every one of them to the user, beside the finding it illustrates.** Use
+whatever your harness gives you for putting a file in front of the user — a
+send-file or attachment tool if you have one; otherwise a Markdown image with
+the full path, `![caption](/full/path/02-group-return_path.png)`, and the path
+itself. "Pictures were written to a folder" is not showing them.
+
+**Look at each picture yourself before you describe it.** Open the PNG. If it
+does not show what its caption claims — a highlight off the edge of the crop,
+a map that is all one colour — say so and draw a better one; never describe the
+picture you expected.
+
+They go to the OS cache, one folder per board, emptied at the start of each
+run so a picture of an older revision can never be shown as this one. Nothing
+is written beside the board. `--pictures review/img` keeps them where the user
+wants them; `--no-pictures` is for when the user asks for text only.
+
+**Then draw what the conversation needs.** The run draws the picture of each
+cause; you draw the rest — the net the user asks about, a finding you explain
+that has no picture yet, a part they point at. Do not hand-render every
+finding: a dense board has three hundred, and that is minutes spent on
+pictures nobody looks at. The report's **render floor** (the largest group,
+plus every net a `critical` or a `major` names) is the minimum you should be
+able to show on request.
 
 ```bash
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.render board.kicad_pcb out/ NET_NAME [NET_NAME…] \
@@ -536,7 +574,10 @@ exists to make a highlight stand out and there is none.
 `render_finding` still refuses a netless finding by default — pass `radius_mm=`
 to crop around its `location` instead. The refusal is deliberate: guessing a
 crop scale for someone else's board is the kind of invented number this project
-refuses, so you have to say how much of the board to show.
+refuses, so you have to say how much of the board to show. The run lists those
+findings under *not drawn* for the same reason; if one is a `critical` or a
+`major` and carries a `location`, choose the region and draw it with
+`--around`.
 
 **Rendering matters most for the nets nobody named.** A board is full of
 `Net-(U1-USB_D+)`, `Net-(R12-Pad2)`, `Net-(C29-Pad2)`. Telling a user
@@ -557,22 +598,8 @@ Widths and lengths per layer with each one's ampacity, the weakest stretch **by
 capacity rather than by width**, via count and barrel ampacity, poured area per
 layer, every pad **in the user's own designators** (`J8.1, J9.1, JP3.2`), and
 every finding that names the net. Nothing in it is a new measurement; the value
-is that it arrives together. Do not assemble this by hand.
-
-`render_finding` still refuses a netless finding by default — pass
-`radius_mm=` to crop around its `location` instead. The refusal is deliberate:
-guessing a crop scale for someone else's board is the kind of invented number
-this project refuses, so you have to say how much of the board to show.
-
-The floor for what to draw is **"every finding you report that names a net"**.
-Netless findings are no longer excused automatically — if one is a `critical`
-or a `major` and it carries a `location`, draw it with `--around`.
-
-**Rendering matters most for the nets nobody named.** A board is full of
-`Net-(U1-USB_D+)`, `Net-(R12-Pad2)`, `Net-(C29-Pad2)`. Telling a user
-"`Net-(C29-Pad2)` has a problem" is useless. Showing them the trace is not.
-That is the strongest reason the renderer exists — do not skip it because a
-net "has no real name".
+is that it arrives together. Do not assemble this by hand. **Draw the net as
+well** and show both — the user asked about copper, so show them the copper.
 
 ### 5. Explain
 
@@ -581,7 +608,59 @@ Every finding already carries `basis` (what was computed, from what geometry),
 datum that would settle its severity). Your job is to turn those into prose
 and a recommendation — not to re-derive the conclusion.
 
-Lead with what the user should act on. A ranked list is not a report.
+Lead with what the user should act on. A ranked list is not a report. Put each
+picture beside the cause it shows, as §"Pictures" says.
+
+**End every report with what you can do next** — three to six offers chosen
+from this run, as §"Offer what else you can do" describes. Every check that
+could not run is one: the datasheets that would give temperatures, the
+currents that would give thermal maps, the BOM that would give assembler
+parity.
+
+---
+
+## Offer what else you can do
+
+Most users do not know what this can check, so they ask for less than it can
+give. Offer, as suggestions, at two moments.
+
+**When the user's ask is open** — "can you help with my PCB?", "what can you
+do?", a board with no question attached — show the menu below before anything
+else, then ask for the board and the stackup it was ordered on. Show the whole
+list once; keep each line to what the user would *get*, not which command
+gives it:
+
+- **Review a board end to end** — layout and schematic together: return
+  paths, impedance, crosstalk, current capacity, placement, board against
+  schematic, and KiCad's own DRC, with a picture of every problem
+- **Check a fab stackup** against the fab's own impedance figures, and against
+  the stackup saved in your KiCad file
+- **Voltage drop, via current and thermal maps** for the power paths you name,
+  at the currents you give
+- **Junction temperatures** from the datasheets you send, each figure cited to
+  its page
+- **Everything about one net** — widths, current capacity, vias, every finding
+  on it — with a picture
+- **A picture of any net, part or area** of the board
+- **Board, schematic and BOM compared**, so what the assembler builds matches
+  what you drew
+- **What changed since the last review** — fixed, new, and changed severity
+- **Turn down a check** that does not apply to your design, on the record
+
+**After every report**, end with three to six offers chosen from *this* run —
+not the whole menu again. In order of how much they would add:
+
+1. each check under *could not run*, as the thing that would unblock it
+   (`thermal` → "send the datasheets for U3, U7 and Q2 and I'll give junction
+   temperatures"; `power_path` → "tell me what the battery and servo rails
+   carry and I'll map the drop and the heat"; `bom_parity` → "add the BOM");
+2. the question that would change the most severities, asked as an offer;
+3. "everything about" the net behind the worst finding, with its picture;
+4. keeping the report and pictures in a `review/` folder beside the board, if
+   there is not one already — and, if there is, what changed since last time.
+
+Suggestions are offers, not a to-do list the user must answer, and they never
+replace reporting what the run found.
 
 ---
 
@@ -1056,6 +1135,14 @@ PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ \
 findings land in the main report as check `power_path`. Without one, the
 report lists `power_path` under *checks that could not run* — the same
 treatment `thermal` gets, for the same reason: **a current is intent**.
+
+**`pcbreview.run` also draws the maps** — a temperature map for each scenario,
+in the verdict environment, and a current-density map for each path — and
+lists them with the review's other pictures. **Show both every time you report
+a power path.** The temperature map is where the heat is; the current map is
+why, with the busiest vias marked. Say which environment the temperature map
+was drawn in, because it is one end of the bracket, not the board's
+temperature.
 
 ### What it computes, and from what
 

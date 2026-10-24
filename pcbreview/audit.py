@@ -64,6 +64,7 @@ from pcbreview.findings import (SEVERITY_ORDER, AuditError, AuditReport,
                                 CheckResult, Finding, _severity)
 from pcbreview.model import Board
 from pcbreview.schematic import Schematic, netlist
+from shapely.geometry import MultiPoint
 from shapely.ops import unary_union
 
 # ---------------------------------------------------------------------------
@@ -1500,6 +1501,11 @@ _DRC_NET = re.compile(r"\[([^\]]+)\]")
 #: dismissed in their own board file and is deliberately not re-raised.
 _DRC_SEVERITY = {"error": "major", "warning": "minor"}
 
+#: Radius of the mark drawn at each DRC violation's position. A marker size,
+#: not a measurement: big enough to see on a whole-board crop and small enough
+#: not to cover the neighbouring pad on a 0.4 mm pitch.
+DRC_MARK_MM = 0.5
+
 #: One run per audit, shared by `check_drc` and `_unconnected_nets`. Keyed by
 #: path because the audit only ever looks at one board, and the DRC costs ~4 s.
 _DRC_CACHE: dict[str, object] = {}
@@ -1637,6 +1643,13 @@ def check_drc(pcb_path) -> list[Finding]:
             title=f"{kind} violation(s) from KiCad's own DRC",
             nets=nets,
             location=next((v.pos for v in violations if v.pos), None),
+            # The evidence is where KiCad says the violations are. A rule type
+            # touches dozens of nets across the board, so a picture of its
+            # nets is a picture of the board; these marks are what to look at.
+            geometry=(MultiPoint([v.pos for v in violations if v.pos])
+                      .buffer(DRC_MARK_MM)
+                      if any(v.pos for v in violations) else None),
+            geometry_label="where KiCad reports a violation",
             detail=detail,
             measurement={"type": kind, "severity": violations[0].severity,
                          "count": len(violations),
@@ -2705,10 +2718,18 @@ def _audit(board: Board, schematic: Schematic | None = None,
               else "no thermal data supplied, so no part is known to dissipate"))
     # Additive, like `thermal`: a current is intent, so without a declared
     # path there is nothing to solve, and that is said rather than skipped.
+    # The whole result is kept, not just its findings: its temperature and
+    # current fields are what the review's pictures draw, and solving again
+    # to get them back would double the slowest check in the audit.
+    power_result = None
     if power_paths is not None:
-        run("power_path",
-            lambda: ampacity_module.check_power_paths(
-                board, power_paths, thermal, power_nets=power_nets),
+        def power_path_check():
+            nonlocal power_result
+            power_result = ampacity_module.evaluate(
+                board, power_paths, thermal, power_nets=power_nets)
+            return power_result.findings
+
+        run("power_path", power_path_check,
             note=(f"{len(power_paths.paths)} declared path(s), "
                   f"{len(power_paths.scenarios)} scenario(s)"))
     else:
@@ -2890,7 +2911,7 @@ def _audit(board: Board, schematic: Schematic | None = None,
         intent=inferred.summary() if inferred else None,
         net_classes=net_class_summary, net_class_map=classes,
         intent_evidence=intent_evidence, assumptions=assumptions,
-        seconds=time.time() - started)
+        seconds=time.time() - started, power_paths_result=power_result)
 
 
 def audit_files(pcb_path, stackup_path, schematic_path=None,

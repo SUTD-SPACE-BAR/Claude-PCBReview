@@ -412,7 +412,8 @@ def render(board: Board, pcb_path: str | Path, nets: list[str], caption: str,
            margin_mm: float = MARGIN_MM,
            browser: str | None = None,
            kicad_cli: str | None = None,
-           region: tuple[float, float, float, float] | None = None) -> Rendered:
+           region: tuple[float, float, float, float] | None = None,
+           plot_cache: dict | None = None) -> Rendered:
     """Plot the board, dim it, and draw the finding's own copper on top.
 
     `evidence` is optional shapely geometry drawn in a distinct colour — the
@@ -426,14 +427,24 @@ def render(board: Board, pcb_path: str | Path, nets: list[str], caption: str,
     most important measurement of one outside review was a plane constriction —
     0.755 mm2 of copper summed over three layers at one x, carrying ~26 A — and
     there was no way to illustrate it. With a region, `nets` may be empty.
+
+    `plot_cache` is a dict the caller keeps across several renders of one
+    board. The `kicad-cli` plot is the slow half of a picture and depends only
+    on the board and the layer set, so a review drawing a dozen pictures plots
+    each layer set once instead of once per picture (`pictures.draw`).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     layers = (layers or layers_used_by(board, nets)
               or [board.copper_layers[0]])
-    plotted = plot_layers(pcb_path, list(layers) + ["Edge.Cuts"],
-                          kicad_cli=kicad_cli)
+    plot_key = (str(pcb_path), tuple(layers))
+    plotted = plot_cache.get(plot_key) if plot_cache is not None else None
+    if plotted is None:
+        plotted = plot_layers(pcb_path, list(layers) + ["Edge.Cuts"],
+                              kicad_cli=kicad_cli)
+        if plot_cache is not None:
+            plot_cache[plot_key] = plotted
 
     geometries = {net: net_geometry(board, net, layers) for net in nets}
     drawn = [g for g in geometries.values() if g is not None and not g.is_empty]
@@ -591,6 +602,7 @@ def stem_for(nets: list[str], prefix: str = "",
 def render_finding(board: Board, pcb_path: str | Path, finding: Finding,
                    out_dir: str | Path, name: str | None = None,
                    radius_mm: float | None = None,
+                   caption: str | None = None,
                    **kwargs) -> Rendered:
     """Render one audit finding, using whatever evidence geometry it carries.
 
@@ -604,6 +616,10 @@ def render_finding(board: Board, pcb_path: str | Path, finding: Finding,
     checks and the ones an outside review most wanted pictures of. Without a
     radius the old refusal stands, because guessing a scale for someone else's
     board is exactly the kind of invented number this project refuses.
+
+    `caption` replaces the default `SEVERITY  title` band — a review's
+    pictures say which group a finding stands for, which the finding itself
+    does not know.
     """
     nets = [n for n in finding.nets if n]
     region = kwargs.pop("region", None)
@@ -615,7 +631,7 @@ def render_finding(board: Board, pcb_path: str | Path, finding: Finding,
                    " — pass radius_mm to crop around its location instead"))
         x, y = finding.location
         region = (x - radius_mm, y - radius_mm, x + radius_mm, y + radius_mm)
-    caption = f"{finding.severity.upper()}  {finding.title}"
+    caption = caption or f"{finding.severity.upper()}  {finding.title}"
     return render(
         board, pcb_path, nets, caption, out_dir,
         name or stem_for(nets, prefix=finding.check,

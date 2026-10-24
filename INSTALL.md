@@ -121,11 +121,11 @@ wrong" section below is where to look first.
 
 ## What a correct install prints
 
-**`782 passed, 88 skipped`**, or `777 passed, 93 skipped` without the optional
+**`801 passed, 88 skipped`**, or `796 passed, 93 skipped` without the optional
 `pdfplumber`. If you see *failures*, the section at the bottom of this page
 covers the ones that have actually happened.
 
-Those 782 need no board of your own. They are closed-form physics — analytic
+Those 801 need no board of your own. They are closed-form physics — analytic
 limits, IPC-2221, exact crosstalk identities, a Laplace solve checked against
 a rectangle — plus every refusal the tool makes. That is a deliberate choice:
 a fresh install has to be verifiable by someone holding nothing but the zip.
