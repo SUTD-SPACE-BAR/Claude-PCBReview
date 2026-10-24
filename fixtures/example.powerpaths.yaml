@@ -1,0 +1,71 @@
+# EXAMPLE power-path manifest — every number and name here is illustrative.
+#
+# ALL VALUES BELOW ARE MADE UP. They show the shape of the file. A current in
+# this file is a statement about what the board carries; one copied from an
+# example is a guess wearing a statement's clothes.
+#
+# Claude writes this file from what the user says. Start from the skeleton
+#
+#   python3 -m pcbreview.ampacity project/ --template
+#
+# which lists every power net's pads by part, fill in what the user told you,
+# save it beside the board as `<board>.powerpaths.yaml`, and check it:
+#
+#   python3 -m pcbreview.ampacity project/ --validate
+#
+# `pcbreview.run` then finds it on its own (check `power_path`), and
+# `pcbreview.ampacity` runs it alone with maps and a grid check.
+
+# Where the board sits. This moves every temperature more than anything on
+# the board does, so ASK. Leave it out and the verdict is taken in the worst
+# case, `enclosed`, and the finding asks the question for you.
+environment: still_air          # enclosed | still_air | forced_air | W/m^2K per face
+
+# The air around the board, not the room. Falls back to the thermal
+# manifest's ambient_c, then to 25 C (and says so).
+ambient_c: 40
+
+# Optional: a footprint bolted to structure, and the conductance (W/K) from it
+# to ambient. Nothing is assumed by default; an unmounted board is the
+# conservative case.
+mounts:
+  H1: 0.05
+
+paths:
+  # One path per net, with EVERY load of that net as a sink. Two paths on the
+  # same net are solved apart and their heat added, which misses the cross
+  # term of (I1 + I2)^2.
+  - name: main_input
+    net: "VIN"
+    from: [J1.2]                          # where the current enters the net
+    to:
+      - {pads: [U1.1-3], current_a: 4.0, name: regulator}   # a pad range
+      - {pads: [U5], current_a: 0.3, name: logic}           # every pad of U5 on the net
+    max_drop_mv: 100                      # optional; without it the drop is a fact, not a verdict
+    voltage_v: 12                         # optional; prints the drop as a percentage
+
+  # A ground return is a path too. The return from a big load to its
+  # regulator's ground pin is often where one via carries most of it.
+  - name: motor_return
+    net: "GND"
+    from: [J4.2]
+    to: [{pads: [U1.4], current_a: 4.0}]
+
+  # A pulse: solved as a transient on top of the continuous load, and its
+  # vias judged as a pulse. `rise_c` is what the copper may reach over it.
+  - name: solenoid
+    net: "/SOL_DRIVE"
+    from: [Q2.5-8]
+    to: [{pads: [J6.1], current_a: 8.0}]
+    pulse_s: 0.2
+    rise_c: 60
+    note: "solenoid kick, 200 ms, a few times per run"
+
+# What runs together. Leave this out and every continuous path runs at once,
+# plus each pulse on top — the worst case the declared currents allow.
+scenarios:
+  - name: running
+    paths: [main_input, motor_return]
+  - name: running, solenoid firing
+    paths: {main_input: 1.0, motor_return: 1.0, solenoid: 1.0}
+    parts: true                           # include thermal-manifest dissipation (default)

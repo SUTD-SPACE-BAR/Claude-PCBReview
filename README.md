@@ -71,9 +71,10 @@ about a minute.
 
 ---
 
-**Claude:** All 17 layout checks and all 8 schematic checks ran. They found
-**97 major findings**, but most of them share a few causes. Here they are by
-cause, most important first.
+**Claude:** 17 of the 18 layout checks and all 8 schematic checks ran; the
+18th needs to know what your power paths carry. They found **97 major
+findings**, but most of them share a few causes. Here they are by cause, most
+important first.
 
 **1. All four current-sense amplifiers measure some of the load's copper.**
 U12, U13, U14 and U17 connect their sense inputs to the shunt somewhere other
@@ -125,6 +126,10 @@ bridges, 2 starved thermal reliefs and 1 courtyard overlap.
 - **Temperatures.** I found 30 parts that can dissipate heat but have no
   datasheet for any of them. Send the PDFs for the ones you care about and I
   will read their thermal figures, citing the page each number came from.
+- **Voltage drop and copper temperature on your power paths.** Tell me what
+  each one carries, for example "the servo rail pulls 6 A", and I will work
+  out the drop, the current in every via, and how hot the copper and the
+  board get.
 - **What the assembler will build.** There is no BOM in the folder.
 - **Crystals and decoupling loops.** The placement check found none it could
   measure on this board, so those parts of it did not run. Its other 29
@@ -143,8 +148,36 @@ beside the board.
 
 ---
 
-You answer in a sentence. Claude writes your answer into a small file beside
-the board, so the next review starts from what you said, and re-runs.
+> **You:** /VIN is DC, about 2 A, split between J21 and J22.
+
+**Claude:** Recorded as a power path: 2 A into /VIN at U5, 1 A out at each
+of J21 and J22. I re-ran the review with it. At that current:
+
+- **The copper heats itself by +20.5 °C**, against the +10 °C allowed by
+  default. That is with the board sealed in an enclosure; in still air it is
+  +14.1 °C, and with a fan +10.5 °C. The hottest stretch is on the first inner
+  layer, where this stackup's copper is less than half as thick as on the
+  outer layers.
+- **Four 0.3 mm vias each carry the full 2 A**, above their 1.8 A rating for
+  a 10 °C rise.
+- **The drop from U5 to the connectors is 304 mV**, and the copper turns
+  560 mW into heat.
+
+Moving that inner-layer stretch to an outer layer, or widening it, would cut
+the heating; a second via beside each of those four would bring them under
+their rating.
+
+![Board temperature with 2 A on /VIN in a sealed enclosure: the hottest stretch, 45 °C, is on the first inner layer](docs/demo/power-temperature.png)
+
+![Current per millimetre of copper width along /VIN: the full 2 A to the split, then 1 A to each connector](docs/demo/power-current.png)
+
+I assumed the board sits at 25 °C; tell me if it runs somewhere warmer. The
+other 35 power nets have no current declared yet, so this covers /VIN only.
+
+---
+
+Claude saves your answers in small files beside the board, so the next review
+starts from what you said.
 
 ---
 
@@ -220,8 +253,8 @@ python -m pip install -r "$HOME\.claude\skills\pcbreview\requirements.txt"
 cd "$HOME\.claude\skills\pcbreview"; python -m pytest tests/ -q
 ```
 
-A correct install prints **`734 passed, 87 skipped`**, or `729 passed, 92
-skipped` if you have not installed the optional `pdfplumber`. Those 734 need
+A correct install prints **`782 passed, 88 skipped`**, or `777 passed, 93
+skipped` if you have not installed the optional `pdfplumber`. Those 782 need
 no board of yours: they are closed-form physics (analytic limits, IPC-2221,
 exact crosstalk identities, a Laplace solve against a rectangle) plus the
 tool's own refusals. The skips are opt-in tests that run against a board *you*
@@ -269,6 +302,13 @@ re-runs. For temperatures it asks for datasheets.
 Anything you say about which nets matter — "the firing channels are the ones
 to watch" — Claude writes into a manifest so it survives the next run.
 
+The same goes for what your power paths carry. Say "the servo rail pulls 6 A"
+or "we may draw the connector's full rating", and Claude writes the pads and
+currents into a power-path manifest; the review then reports each path's
+voltage drop, how much current each via carries, and how hot the copper and
+the board get — as a range over sealed, still-air and ventilated surroundings,
+because that is where the real uncertainty lives.
+
 ### What comes back
 
 Findings ranked by severity, each with the measurement, the derivation, and
@@ -279,6 +319,9 @@ picture is not.
 
 A full review is usually under a minute on a four-layer board, and a few
 minutes on a large dense one; the field solver is 85% of that. It is not hung.
+Declaring power paths adds a minute or more, because each one is a current
+and heat solve over the whole board: the demo board went from 65 s to 138 s
+with one path.
 
 **A second review is 3–5x faster.** Every cross-section the solver computes is
 cached on disk and reused — across runs, and across boards built on the same
@@ -306,7 +349,11 @@ What it does instead is **compute the physics**:
 - **current capacity** by eroding the conductor to find its narrowest real
   channel, and a Laplace solve for a plane's true two-terminal resistance;
 - **junction temperatures** from datasheet numbers you supply, plus how far
-  your board is from the JEDEC card those numbers assume.
+  your board is from the JEDEC card those numbers assume;
+- **voltage drop, via current and board temperature** for the power paths you
+  declare, from a DC current-flow solve through every layer and via at once
+  and a heat model of the whole board. Temperatures come back as a range over
+  three kinds of surroundings, never as a single number.
 
 Every conclusion is computed in code — and so is **what gets reported**. Which
 findings must appear in a review is a set of rules in `pcbreview/report/`, not
@@ -358,15 +405,17 @@ record is the only thing that quietens anything.
 **It never writes to your design.** Reading a board does not modify it, and a
 test asserts the file's timestamp is unchanged. The only files it adds are
 small ones beside the board that record what you told it: the stackup you
-chose, your answers about nets, and the datasheet figures it read. Findings
+chose, your answers about nets, the currents your power paths carry, and the
+datasheet figures it read. Findings
 are shown and then gone. If you want them kept, it offers to make a `review/`
 folder beside your board — every run's data, yours to read, commit or delete.
 
 ### How it is checked
 
-- **734 tests that need no board of yours**: closed-form physics, IPC-2221,
-  exact crosstalk identities and a Laplace solve against a rectangle, plus the
-  tool's own refusals. Run them yourself; the count to expect is above.
+- **782 tests that need no board of yours**: closed-form physics, IPC-2221,
+  exact crosstalk identities, a Laplace solve against a rectangle, current
+  flow and heat spreading against their exact answers, plus the tool's own
+  refusals. Run them yourself; the count to expect is above.
 - **[tests/mutation_check.py](tests/mutation_check.py)** breaks the contracts on
   purpose and checks that the tests notice.
 - **[tests/validate_all_boards.py](tests/validate_all_boards.py)** re-measures

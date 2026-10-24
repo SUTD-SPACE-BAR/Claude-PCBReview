@@ -31,6 +31,11 @@ PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.facts project/
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.facts project/ \
   --declare "/FIRE_CH*=power,current=5.0,rise=60,note=igniter, ~1 s per flight"
 
+# 4b. when the user states what a path carries: drop, vias, board temperature
+PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ --template
+PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ --validate
+PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ --check-grid --images out/
+
 # 5. re-run, then draw the handful you will explain
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.run project/ > review-2.txt 2>&1
 PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.render board.kicad_pcb out/ NET --caption "what this shows"
@@ -1028,6 +1033,148 @@ See `fixtures/example.netintent.yaml`.
 
 ---
 
+## Power paths — drop, via current and board temperature at a stated current
+
+`current_capacity` compares a net's feeds with each other and needs no
+current. The moment the user says **what a path carries** — "the servo rail
+pulls 6 A", "we might draw near the connector's maximum", "will this get hot
+in the bay" — the questions become absolute, and this is the tool for them.
+
+```bash
+# a skeleton listing every power net's pads by part — PRINTED, never written
+PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ --template
+
+# write <board>.powerpaths.yaml from what the user said, then check it
+PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ --validate
+
+# the analysis: ~1 min for a dozen paths on a six-layer board
+PYTHONPATH="$PCBREVIEW_HOME" python3 -m pcbreview.ampacity project/ \
+  --check-grid --images out/ > ampacity.txt 2>&1
+```
+
+`pcbreview.run` picks the manifest up on its own, beside the board, and its
+findings land in the main report as check `power_path`. Without one, the
+report lists `power_path` under *checks that could not run* — the same
+treatment `thermal` gets, for the same reason: **a current is intent**.
+
+### What it computes, and from what
+
+* **DC current flow** over the path's copper on *every* layer at once —
+  pours, tracks, pads — joined by every via and plated hole as a plated
+  barrel. Copper thickness and layer spacing come from the bound stackup.
+  Out of it: the drop to each sink, the I²R, **each via's share of the
+  current**, and where the loss concentrates.
+* **Board temperature** from that loss and from the thermal manifest's
+  `dissipation_w`, through a conduction model with one sheet per copper
+  layer, the laminate between them, every via as a vertical heat path, and
+  the two faces cooling to ambient. Steady state, and a transient for pulses.
+
+### Writing the manifest
+
+```yaml
+environment: enclosed        # enclosed | still_air | forced_air | W/m^2K
+ambient_c: 40
+paths:
+  - name: servo_rail
+    net: "+VSERVO"
+    from: [L2.2]                               # U3.17-24 is a range
+    to:
+      - {pads: [J10.2], current_a: 6.0}
+    rise_c: 20                                 # allowed; default 10
+  - name: igniter
+    net: "/FIRE_OUT"
+    from: [Q3.5]
+    to: [{pads: [J7.3], current_a: 7.6}]
+    pulse_s: 1.0
+    rise_c: 60
+scenarios:
+  - {name: flight, paths: [servo_rail]}
+```
+
+Five rules, each of which changes a number:
+
+1. **One path per net, with every load of that net as a sink.** Two paths on
+   one net are solved apart and their heat added, which misses the cross term
+   of `(I1 + I2)²`; the run says so when it happens.
+2. **Terminals are pads, and the right pads.** `from` is where the current
+   enters the net (a regulator's output pins, a connector's power pin), `to`
+   is where it leaves. A wrong pad is refused by name with the pads that part
+   *does* have on the net — read the list rather than guessing again.
+3. **A ground return is a path too.** The return from a 6 A load to its
+   regulator's ground pin is often the hottest via on the board.
+4. **Ask what runs together.** Without `scenarios` every continuous path runs
+   at once, which is the worst case the declared currents allow — correct as
+   a default, pessimistic as a description of flight.
+5. **A pulse is `pulse_s`, not a smaller current.** It is solved as a
+   transient on top of the continuous load, and its vias are judged as a pulse.
+6. **Switching current is given as RMS.** The solve is DC, and I²R is right
+   for any waveform only at its RMS value. In a buck, the copper from the
+   switch pin to the inductor carries the inductor current all the time —
+   about `I_out` RMS, a little more with ripple — while the input pins carry
+   pulses of it, about `I_out * sqrt(D)` RMS rather than the average
+   `I_out * D`. Say in the path's `note` which one you used.
+
+**Maximum-current questions** ("what if we draw the connector's rating") are
+paths too: one path per connector at its contact rating times its power pins,
+**capped by what the regulator behind it can deliver**, which the run does not
+know — say which of the two is the limit.
+
+### Temperatures are a bracket. Report them as one.
+
+Every temperature is solved in three environments — `enclosed` (5 W/m²K per
+face), `still_air` (12), `forced_air` (30) — and printed as a bracket. The
+verdict is taken in the environment the manifest declares, or **in
+`enclosed` when none is declared**, and the finding asks which it is.
+
+**Never quote one of the three as "the board temperature".** Say the bracket
+and which end the verdict used: *"+8 °C in a sealed bay, +5 °C in open still
+air, +3 °C with airflow — judged at the sealed-bay end because you have not
+said where it sits."* `heatsink.py` explains why: the surroundings move this
+more than anything on the board does.
+
+Two temperatures per path, and they answer different questions:
+
+* **its own current** heating its own copper — the IPC sense of "rise", and
+  what `rise_c` is judged against;
+* **the whole board** — copper loss plus part dissipation, absolute, against
+  laminate and connector limits (major at 90 °C, critical at 105 °C).
+
+A path whose own heating is +2 °C can sit on a board that is +20 °C from
+everything else. Report both, and do not let one stand in for the other.
+
+**A part's own rise under its pads is not a junction temperature** and must
+not be added to `theta_JA * P` — `theta_JA` already contains the board under
+it. What *does* belong in a junction estimate is the `neighbour` finding: how
+much everything else raises the board the part sits on.
+
+### What it does not model — say this when you report a temperature
+
+Packages as solids (heat enters at the pads; nothing leaves the package top),
+conduction out through harness wires and connectors, an enclosure's walls
+warming, and — unless `--coupled` is given — copper resistance rising with
+temperature (about 4% per 10 °C; `--coupled` re-solves hot). It has never been
+compared with a thermocouple on a real board. **A bench measurement settles
+what this estimates**: load the path, read the drop with a meter and the
+temperature with a probe or an IR camera, and believe those over this.
+
+### How far to trust the numbers
+
+* Resistance and drop: closed-form strip and annulus to 0.5% and 1.7% at the
+  default 0.1 mm grid. On a real board `--check-grid` halves the pitch and
+  reports the change for every path — 0.3% to 7% on a six-layer board, and
+  always downward, because a coarse grid can only overstate resistance.
+* Via currents: exact sharing in symmetric cases; on a real board each share
+  carries the grid's error.
+* Temperatures: the solver is exact against closed form; **the environment
+  is not**, which is the whole point of the bracket. IPC-2221's own working
+  point (1 mm, 1 oz, 2.39 A, +10 °C) comes out at +8.7 °C in still air —
+  below IPC, which is known to be conservative.
+
+`REFERENCE.md`, *Power paths*, has the full validation table and where every
+threshold came from.
+
+---
+
 ## The severity policy — when the user says a check is not their problem
 
 `<board>.severity.yaml`, beside the board. KiCad's *Violation Severity* page,
@@ -1209,14 +1356,15 @@ and coupling numbers are a ranking of what to look at.
 
 ## What the checks are
 
-Thirty, over three entry points. `python3 -m pcbreview.audit` needs a
+Thirty-one, over three entry points. `python3 -m pcbreview.audit` needs a
 stackup; the schematic entry point never touches that gate.
 
 **Layout** — `board_state`, `drc` (KiCad's own rule engine, reported not
 reimplemented), `stackup_mismatch`, `panelisation`, `impedance`,
 `return_path`, `reference_split`, `layer_transition`, `differential_pair`,
 `crosstalk`, `broadside`, `conductor_neck`, `current_capacity`, `heat_path`,
-`thermal`, `parity`, `bom_parity`, `placement`.
+`power_path` (needs `<board>.powerpaths.yaml`), `thermal`, `parity`,
+`bom_parity`, `placement`.
 
 **Schematic** — `pin_type_coverage`, `unconnected_power_pin`, `floating_pin`,
 `output_conflict`, `missing_pullup`, `decoupling`, `dnp_dependency`,
@@ -1242,6 +1390,7 @@ than by authoring YAML. **The user never edits one.**
 | `<board>.thermal.yaml` | `pcbreview.parts … --write` | the PDFs they supply, what you `--read` out of them, plus your `--watts` |
 | `<board>.datasheets.yaml` | `pcbreview.parts … --attach` | which document belongs to which part, where the filename does not say |
 | `<board>.netintent.yaml` | `pcbreview.facts … --declare` | what they say about which nets matter |
+| `<board>.powerpaths.yaml` | you, from `pcbreview.ampacity … --template`, then `--validate` | which pads each current runs between, how much, for how long, and where the board sits |
 | `<board>.severity.yaml` | by hand, rarely | the user asking for a check to be re-levelled or ignored |
 
 **Prefer the command to hand-authoring in every case.** Each of those writers

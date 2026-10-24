@@ -76,6 +76,7 @@ class Project:
     thermal: Path | None = None
     netintent: Path | None = None
     bom: Path | None = None
+    powerpaths: Path | None = None
     datasheets: tuple[Path, ...] = ()
     unknown: tuple[Path, ...] = ()
     #: what routing did that the user should be able to see it did
@@ -84,7 +85,8 @@ class Project:
     def describe(self) -> str:
         rows = [("board", self.board), ("stackup", self.stackup),
                 ("schematic", self.schematic), ("thermal", self.thermal),
-                ("netintent", self.netintent), ("BOM", self.bom)]
+                ("netintent", self.netintent), ("BOM", self.bom),
+                ("powerpaths", self.powerpaths)]
         lines = [f"  {name:10} {path.name if path else '— none found —'}"
                  for name, path in rows]
         for pdf in self.datasheets:
@@ -359,6 +361,7 @@ def discover(target, schematic=None) -> Project:
         schematic=schematic, thermal=_as_path(slots.get("thermal")),
         netintent=_as_path(slots.get("netintent")),
         bom=_as_path(bom_path),
+        powerpaths=_as_path(slots.get("powerpaths")),
         datasheets=tuple(Path(p) for p in slots.get("datasheets", [])),
         unknown=tuple(Path(p) for p in slots.get("unknown", [])),
         notes=tuple(notes))
@@ -467,6 +470,7 @@ def review(project: Project, *, refill: bool = False, keep_board: bool = False,
                 board_path, project.stackup,
                 _pin(project.schematic), _pin(project.thermal),
                 _pin(project.netintent), _pin(project.bom),
+                power_paths_path=_pin(project.powerpaths),
                 **audit_kwargs)
         except (AuditError, StackupGateError) as exc:
             raise PipelineError(f"{project.board.name}: {exc}") from exc

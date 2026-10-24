@@ -49,7 +49,7 @@ from pathlib import Path
 #: "that is a datasheet — give it to Claude, not to the auditor" is a far more
 #: useful answer than a parse error. `unknown` is a real answer too.
 KINDS = ("board", "schematic", "stackup", "thermal", "netintent", "bom",
-         "datasheet", "unknown")
+         "powerpaths", "datasheet", "unknown")
 
 #: Which top-level YAML key identifies each manifest. Order matters only in
 #: that a file carrying two of them is ambiguous and is reported as such.
@@ -57,6 +57,7 @@ _YAML_SIGNATURES = {
     "layers": "stackup",
     "parts": "thermal",
     "nets": "netintent",
+    "paths": "powerpaths",
 }
 
 #: How much of a file to read to identify it. A KiCad board's first line is its
@@ -186,7 +187,7 @@ def describe(slots: dict) -> str:
     """
     lines = []
     for kind in ("board", "stackup", "schematic", "thermal", "netintent",
-                 "bom"):
+                 "bom", "powerpaths"):
         value = slots.get(kind)
         if value:
             lines.append(f"  {kind:10} {Path(value).name}")

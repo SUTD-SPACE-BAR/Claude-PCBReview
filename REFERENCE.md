@@ -5,7 +5,7 @@ come from. **This is the document to read before changing a threshold or
 adding a check.** For what the tool does and how to run it, see
 [README.md](README.md); for installing it, [INSTALL.md](INSTALL.md).
 
-**Status: complete and packaged.** 29 checks over three entry points. The
+**Status: complete and packaged.** 30 checks over three entry points. The
 suite is the contract — see README for the current count and what a clean
 install prints.
 
@@ -19,6 +19,7 @@ What it is validated against, in order of independence from this code:
 | field solver | analytic limits, two independent closed forms (IPC-2141 stripline, Hammerstad-Jensen microstrip), and **the fab's own published impedance targets** |
 | crosstalk | two **exact physical identities**, which hold to solver precision or not at all |
 | current capacity | IPC-2221, and a Laplace solve checked against a rectangle's closed form |
+| power paths | closed form for every solver piece (strip, annulus, barrels, point source, transient), IPC-2221's own working point, and energy balance on a real board |
 
 **Two things this deliberately does not do.** It does not claim EMC pass or
 fail — nothing here is a substitute for a chamber. And it does not decide what
@@ -831,6 +832,120 @@ reported as itself rather than as fourteen broken return paths.
 The GPS feed on the four-layer board produces nothing above `info`, which is the check
 that matters: a tool that cried wolf on the one net where impedance genuinely
 does would not be worth running.
+
+## Power paths (`dcflow.py`, `boardheat.py`, `ampacity.py`, `powerpaths.py`)
+
+`current_capacity` asks whether one feed of a net is worse than its siblings,
+and needs no current. `power_path` asks the absolute questions once someone
+has said what a path carries, in `<board>.powerpaths.yaml`. Four modules:
+
+| module | what it is |
+|---|---|
+| `powerpaths.py` | the manifest: paths (net, source pads, sinks with currents, allowed rise, pulse length), scenarios, environment, ambient, mounts. Refuses unknown keys, unit-suffixed numbers and dangling scenario names |
+| `dcflow.py` | 2.5D DC current flow over one net's copper on every layer, joined by plated barrels |
+| `boardheat.py` | board temperature: one conducting sheet per copper layer, laminate and barrels between, both faces cooled; steady and transient |
+| `ampacity.py` | the check (`power_path`), the CLI and the maps |
+
+### The current-flow model
+
+Each layer's copper of the net — `Board.copper_on_layer`, so pours, tracks,
+pads and via lands — is rasterised onto one shared grid (default 0.1 mm,
+coarsened only above 1.5 M cells, and the pitch is always reported). Face
+conductance is ``t / rho`` per square, harmonic-mean across a cell pair, with
+``rho`` at 20 C or at a supplied temperature (``alpha = 0.00393``).
+
+**Barrels** join consecutive layers they pass, each segment
+``sigma * pi * d * plating / L`` with ``L`` the stackup distance between the
+layers' mid-planes; plating defaults to `current.VIA_PLATING_UM` (25 um) and is
+stated on every finding. Plated holes are barrels too. **Terminals and via
+lands are merged into single nodes by Galerkin projection**, the same way
+`current.plane_resistance` merges an electrode; a through-hole terminal is
+merged across every layer, because its pin and solder join them far better
+than its plating. Copper not joined to the source is dropped before the
+solve; a sink on another island is refused by name, as is a pair of terminals
+sharing copper.
+
+### The heat model
+
+On a 0.25 mm grid over the outline, one sheet per copper layer. Lateral
+conductance per cell is ``k_cu * t * f + k_xy * (half the laminate above and
+below)``, with the copper fraction ``f`` supersampled 4 x 4 so a 0.2 mm track
+conducts. Neighbouring sheets are joined through the laminate (``k_z``) and,
+at each barrel's cell, through its plating. The outer sheets lose heat at a
+linear surface coefficient per face; optional mounts add a stated conductance
+to ambient at a footprint.
+
+| constant | value | source |
+|---|---|---|
+| `K_COPPER_W_MK` | 385 | handbook |
+| `K_LAMINATE_XY_W_MK` / `_Z_` | 0.8 / 0.3 | FR-4 datasheet ranges, xy 0.6-1.0, z 0.25-0.40 |
+| `C_COPPER_J_M3K` / `C_LAMINATE_` | 8960 x 385 / 1850 x 1100 | handbook |
+| `ENVIRONMENTS` | enclosed 5, still_air 12, forced_air 30 W/m^2K per face | natural convection 4-8 plus grey-body radiation 5-6 at emissivity 0.9; a closed bay suppresses most convection; 1-2 m/s across a board. Judgement, declared |
+
+**Temperatures are only ever reported as a bracket over `ENVIRONMENTS`.** The
+verdict environment is the manifest's, or `enclosed` when none is declared —
+the worst, under the standing preference for a false positive over a silent
+pass — and the finding then asks which it is.
+
+Superposition is used deliberately and is exact because the model is linear:
+one factorisation per environment serves every path and part as a separate
+load; a part's *neighbour* heating is the total field minus its own; and a
+pulse's end-of-pulse field on any steady background is that background plus
+the pulse's own transient from zero, so each pulse is solved once.
+
+### Validation
+
+| case | against | result |
+|---|---|---|
+| strip, one layer | ``rho L / (W t)`` | +1.02%, +0.51%, +0.26% at 0.2, 0.1, 0.05 mm |
+| annulus, 0.5 oz | ``rho ln(r2/r1) / (2 pi t)`` | +1.67%, +0.76% at 0.1, 0.05 mm |
+| two layers through one barrel | strip + tube + strip in series | within 2% at 0.05 mm |
+| four symmetric vias | equal shares | within 1% |
+| two sinks | each sink's own drop | within 3% |
+| any solve | I^2R against I x V | within 0.5% |
+| uniform heating | ``P / (h A)`` | exact |
+| two sheets, top heated | the 1-D network by hand | exact |
+| point source on a sheet | ``P K0(r/l) / (2 pi k t)`` | within 0.1% at 5, 10, 20 mm |
+| lumped transient at ``t = tau`` | ``1 - exp(-1)`` | -0.07% |
+| IPC-2221: 1 mm, 1 oz, 2.39 A on a bare 76 mm card | +10 C | **+8.7 C** — below IPC, which is conservative |
+| a six-layer board, 12 declared paths | energy balance at every sink | within 2% |
+| the same, grid halved 0.1 -> 0.05 mm | drop | moved 0.3% to 7.1%, always downward |
+| the same, `--coupled` | hot copper | loss up 9-12% with the board at up to +22 C |
+
+What none of this establishes: that a real board's surroundings match any one
+environment, and that its parts shed heat only through their pads. It has not
+been compared with a thermocouple on a real board.
+
+### Thresholds
+
+| finding | minor / major / critical | why |
+|---|---|---|
+| drop over `max_drop_mv` | 1x / 1.5x / 3x | only when the path declares a limit; otherwise the drop is reported as a fact |
+| busiest barrel over IPC-2221 at the path's rise | 1x / 1.5x / 2.5x | IPC treats a barrel as a long conductor; a real one is 1.6 mm between two heat sinks and runs cooler, so major starts at 1.5x |
+| a path's **own** copper rise over its `rise_c` | 1x / 2x / 4x | the IPC sense of "rise"; 4x the 10 C default is 40 C from current alone |
+| the board, absolute | — / 90 C / 105 C | FR-4 laminates 105-130 C continuous, solder mask and most board-mount connectors 85-105 C; major leaves room for the environment's error |
+| neighbour heating under a part | 10 C | moves a junction estimate by more than its own arithmetic |
+| grid change on halving | 10% | `--check-grid` only |
+
+A pulse shorter than 50 ms (`SHORT_PULSE_S`) judges its barrels against the
+adiabatic bound ``J^2 rho t / (rho_m c)`` instead of IPC: a barrel's thermal
+time constant along 1.6 mm of copper is ~6 ms, so shorter than that it has
+not reached equilibrium, and longer it effectively has. Every pulse finding
+also quotes the adiabatic bound at the path's worst spot, beside the modelled
+rise, so a reader can see how much the spreading is doing.
+
+### Cost
+
+Measured on a 45 x 75 mm six-layer board with 12 paths: **63 s** for the
+analysis, of which the heat model is most. SuperLU's default column ordering
+took 50 s per factorisation of the 337k-unknown heat matrix; a symmetric
+minimum-degree ordering with the layers interleaved cell by cell takes 11.6 s,
+identical to 1e-14. Three environments plus one pulse stepper are four
+factorisations. `--check-grid` (a second current solve per path at half the
+pitch) and `--coupled` (the continuous paths re-solved hot, and the heat
+re-run) added 27 s between them. A whole-board ground path is the largest
+current solve, ~6 s at 750k cells. Inside `pcbreview.run` the check added
+~70 s to a 21 s review of the same board.
 
 ## Physics (`physics.py`)
 

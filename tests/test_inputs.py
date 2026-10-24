@@ -33,6 +33,7 @@ SCHEMATIC = '(kicad_sch (version 20260306) (generator "eeschema")\n)\n'
 STACKUP = "name: a stackup\nlayers:\n  - role: copper\n    name: L1\n    thickness_mm: 0.035\n"
 THERMAL = "ambient_c: 25\nparts:\n  U1:\n    dissipation_w: 1.0\n"
 NETINTENT = 'nets:\n  - match: "/X"\n    net_class: other\n'
+POWERPATHS = 'paths:\n  - name: a\n    net: "/X"\n    from: [U1.1]\n    to: [{pads: [J1.1], current_a: 1}]\n'
 
 
 def test_every_kind_is_identified_from_its_contents(tmp_path):
@@ -41,17 +42,19 @@ def test_every_kind_is_identified_from_its_contents(tmp_path):
     assert inputs.classify(_write(tmp_path, "a.stackup.yaml", STACKUP)) == "stackup"
     assert inputs.classify(_write(tmp_path, "a.thermal.yaml", THERMAL)) == "thermal"
     assert inputs.classify(_write(tmp_path, "a.netintent.yaml", NETINTENT)) == "netintent"
+    assert inputs.classify(_write(tmp_path, "a.powerpaths.yaml", POWERPATHS)) == "powerpaths"
     assert inputs.classify(_write(tmp_path, "bom.csv", "Reference,Value\n")) == "bom"
     assert inputs.classify(_write(tmp_path, "d.pdf", "%PDF-1.4\n")) == "datasheet"
 
 
-def test_the_three_yaml_manifests_are_told_apart_by_their_top_level_key():
-    """The whole reason content beats extension. All three are `.yaml`, and a
+def test_the_yaml_manifests_are_told_apart_by_their_top_level_key():
+    """The whole reason content beats extension. All four are `.yaml`, and a
     stackup in the thermal slot is silently ignored while a thermal manifest in
     the stackup slot fails Gate 1 with an error about missing layers."""
     assert inputs._YAML_SIGNATURES == {"layers": "stackup",
                                        "parts": "thermal",
-                                       "nets": "netintent"}
+                                       "nets": "netintent",
+                                       "paths": "powerpaths"}
 
 
 def test_a_renamed_file_is_still_identified(tmp_path):

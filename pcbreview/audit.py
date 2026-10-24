@@ -49,12 +49,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pcbreview import (coupling as coupling_module, crosstalk as crosstalk_module,
+from pcbreview import (ampacity as ampacity_module,
+                       coupling as coupling_module, crosstalk as crosstalk_module,
                        bom as bom_module, current as current_module, drc,
                        heatsink as heatsink_module, intent as intent_module,
                        netclass as netclass_module,
                        review as review_module,
                        panel, parity as parity_module,
+                       powerpaths as powerpaths_module,
                        physics, placement as placement_module,
                        reference as reference_module, routed, solvepool,
                        solvestore, thermal as thermal_module, topology)
@@ -2464,7 +2466,8 @@ def audit(board: Board, schematic: Schematic | None = None,
           bom_comparison=None,
           pcb_path=None,
           progress=None,
-          solve_store=None) -> AuditReport:
+          solve_store=None,
+          power_paths=None) -> AuditReport:
     """Run every check the board's data supports, over a warm solve cache.
 
     A thin wrapper around `_audit`, and the only thing it adds is
@@ -2489,7 +2492,7 @@ def audit(board: Board, schematic: Schematic | None = None,
     with solvestore.for_audit(solve_store):
         return _audit(board, schematic, ground_nets, rise_time_ps, skip,
                       crosstalk_cache, thermal, net_intent, bom_comparison,
-                      pcb_path, progress)
+                      pcb_path, progress, power_paths)
 
 
 def _audit(board: Board, schematic: Schematic | None = None,
@@ -2501,7 +2504,8 @@ def _audit(board: Board, schematic: Schematic | None = None,
            net_intent: "netclass_module.NetIntent | None" = None,
            bom_comparison=None,
            pcb_path=None,
-           progress=None) -> AuditReport:
+           progress=None,
+           power_paths=None) -> AuditReport:
     """Run every check the board's data supports and rank what they found.
 
     Refuses without a bound stackup. That is Gate 1, and it is not negotiable:
@@ -2699,6 +2703,21 @@ def _audit(board: Board, schematic: Schematic | None = None,
     run("heat_path", lambda: check_heat_path(board, thermal),
         note=(f"{heat_coverage['thermal_pads']} thermal tab(s)" if thermal
               else "no thermal data supplied, so no part is known to dissipate"))
+    # Additive, like `thermal`: a current is intent, so without a declared
+    # path there is nothing to solve, and that is said rather than skipped.
+    if power_paths is not None:
+        run("power_path",
+            lambda: ampacity_module.check_power_paths(
+                board, power_paths, thermal, power_nets=power_nets),
+            note=(f"{len(power_paths.paths)} declared path(s), "
+                  f"{len(power_paths.scenarios)} scenario(s)"))
+    else:
+        checks.append(CheckResult(
+            "power_path", ran=False,
+            skipped_because=("no power paths declared, so no drop, via "
+                             "current or board temperature was computed at a "
+                             "stated current — `python -m pcbreview.ampacity "
+                             "<project> --template` starts a manifest")))
 
     if schematic is None:
         for name in ("parity", "bom_parity", "placement", "thermal"):
@@ -2876,7 +2895,7 @@ def _audit(board: Board, schematic: Schematic | None = None,
 
 def audit_files(pcb_path, stackup_path, schematic_path=None,
                 thermal_path=None, net_intent_path=None, bom_path=None,
-                **kwargs) -> AuditReport:
+                power_paths_path=None, **kwargs) -> AuditReport:
     """Load a board, its stackup and its schematic, then audit the lot.
 
     The schematic defaults to the one beside the board, which is where KiCad
@@ -2920,7 +2939,8 @@ def audit_files(pcb_path, stackup_path, schematic_path=None,
     #: can say so rather than looking like a board that simply has none
     suppressed = [name for name, value in
                   (("schematic", schematic_path), ("thermal", thermal_path),
-                   ("net-intent", net_intent_path), ("BOM", bom_path))
+                   ("net-intent", net_intent_path), ("BOM", bom_path),
+                   ("power paths", power_paths_path))
                   if value is False]
     board = Board.from_kicad(pcb_path)
     stackup, problems = load_and_validate(stackup_path, board.copper_layers)
@@ -2946,6 +2966,14 @@ def audit_files(pcb_path, stackup_path, schematic_path=None,
     net_intent = (netclass_module.load_intent(net_intent_path)
                   if net_intent_path else None)
 
+    # The power-path manifest, like the thermal one, is additive: without it
+    # `power_path` reports that it could not run and says how to start one.
+    if power_paths_path is None:
+        candidate = powerpaths_module.default_path(pcb_path)
+        power_paths_path = candidate if candidate.exists() else None
+    power_paths = (powerpaths_module.load(power_paths_path)
+                   if power_paths_path else None)
+
     if bom_path is None:
         bom_path = bom_module.find_bom(pcb_path)
     comparison = None
@@ -2957,7 +2985,8 @@ def audit_files(pcb_path, stackup_path, schematic_path=None,
             comparison = None
 
     report = audit(board, schematic, thermal=manifest, pcb_path=pcb_path,
-                   net_intent=net_intent, bom_comparison=comparison, **kwargs)
+                   net_intent=net_intent, bom_comparison=comparison,
+                   power_paths=power_paths, **kwargs)
     report.assumptions = [f"stackup: {p}" for p in problems] + report.assumptions
     if suppressed:
         report.assumptions.append(
